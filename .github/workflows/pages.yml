@@ -79,9 +79,56 @@ jobs:
         run: |
           # --delete keeps the target honest, but pr-* must survive a push to
           # main: a preview is live for as long as its pull request is.
+          #
+          # --checksum is load-bearing, not a belt-and-braces flag. rsync's
+          # default quick check skips a file when its size and mtime both
+          # match, and index.html defeats both halves of that test: Vite's
+          # content hashes are fixed-length, so the file is byte-for-byte the
+          # same *size* on every build and only the hash characters differ.
+          # That leaves mtime alone to decide — and the git worktree checkout
+          # above and the build that precedes it land within the same second.
+          # When they do, rsync copies the freshly hashed assets and skips
+          # index.html, publishing a page whose every script and stylesheet
+          # 404s. That is exactly what shipped to the root deployment: assets
+          # replaced, index.html left pointing at a bundle the same commit
+          # had just deleted.
           mkdir -p ".gh-pages/${{ steps.target.outputs.dir }}"
-          rsync -a --delete --exclude 'pr-*' --exclude '.git' \
+          rsync -a --checksum --delete --exclude 'pr-*' --exclude '.git' \
             dist/client/ ".gh-pages/${{ steps.target.outputs.dir }}/"
+
+      - name: Refuse to publish a page whose assets are not there
+        env:
+          DIR: ${{ steps.target.outputs.dir }}
+          BASE: ${{ steps.target.outputs.base }}
+        run: |
+          # A blank screen is the quietest possible failure: the build is
+          # green, the commit lands, and the deployment is broken. Everything
+          # index.html points at has to exist in the tree being published.
+          cd ".gh-pages/$DIR"
+          # Checked explicitly: with no index.html the loop below has nothing
+          # to iterate and would pass an empty directory as healthy.
+          if [ ! -f index.html ]; then
+            echo "::error::no index.html in the tree being published"
+            exit 1
+          fi
+          missing=0
+          for ref in $(grep -oE '(src|href)="[^"]+"' index.html \
+                       | sed 's/^[^"]*"//; s/"$//'); do
+            case "$ref" in
+              http*|//*|data:*|'#'*|mailto:*) continue ;;
+            esac
+            rel=${ref#"$BASE"}
+            rel=${rel#/}
+            if [ ! -f "$rel" ]; then
+              echo "::error::index.html references '$ref' but '$rel' is not in the published tree"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Refusing to publish — this is what a blank page looks like."
+            exit 1
+          fi
+          echo "index.html and the published assets agree."
           # Tells Pages not to run the output through Jekyll, which would
           # drop any file or directory beginning with an underscore.
           touch .gh-pages/.nojekyll
