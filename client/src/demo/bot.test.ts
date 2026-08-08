@@ -114,9 +114,9 @@ describe('the bot', () => {
   it('plays a whole 3-round match through the protocol', () => {
     const { bots, latest } = seatedMatch(2024);
 
-    const finished = pump(bots, () => latest().stage === 'matchEnd');
+    const { reached } = pump(bots, () => latest().stage === 'matchEnd');
 
-    expect(finished).toBe(true);
+    expect(reached).toBe(true);
     const view = latest();
     expect(view.stage).toBe('matchEnd');
     expect(view.round).toBe(3);
@@ -127,7 +127,7 @@ describe('the bot', () => {
   it('finishes a match from any of a spread of seeds', () => {
     for (const seed of [1, 7, 99, 12345, 65536]) {
       const { bots, latest } = seatedMatch(seed);
-      expect(pump(bots, () => latest().stage === 'matchEnd')).toBe(true);
+      expect(pump(bots, () => latest().stage === 'matchEnd').reached).toBe(true);
     }
   });
 

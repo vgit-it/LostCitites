@@ -13,7 +13,7 @@
 // anyway. That is what lets a scenario stop between a place and a draw.
 // ============================================================
 
-import { PlayerView, Seat, ServerMessage } from '@shared/types';
+import { ClientMessage, PlayerView, Seat, ServerMessage } from '@shared/types';
 import { Rng } from '../../../server/rng';
 import { SocketClient } from '../session/socket';
 import { DEMO_CODE } from './hub';
@@ -36,6 +36,10 @@ export interface Bot {
   /** Self-drive with a pause between moves, for a game being watched. */
   start(delayMs?: number): void;
   stop(): void;
+  /** Send as this seat, for the one intent the bot has no opinion about. */
+  send(message: ClientMessage): void;
+  /** Give up the seat, so a person can take it. */
+  close(): void;
 }
 
 function pick<T>(items: T[], rng: Rng): T {
@@ -116,21 +120,41 @@ export function createBot(
       if (timer) clearTimeout(timer);
       timer = null;
     },
+
+    send: (message) => socket.send(message),
+
+    close() {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      socket.close();
+    },
   };
 }
 
+export interface PumpResult {
+  /** Whether it stopped because `done` held, rather than running out of moves. */
+  reached: boolean;
+  /** Half-turns played. */
+  steps: number;
+}
+
 /**
- * Runs bots until nobody can move or `done()` holds, and returns whether it
- * stopped because `done()` held rather than because it ran out of moves.
+ * Runs bots until nobody can move or `done` holds.
  *
  * An explicit trampoline, not recursion: with sync delivery each step lands
  * the server's answer before it returns, so a whole match unwinds in one
  * stack frame instead of a few hundred.
  */
-export function pump(bots: Bot[], done: () => boolean, guard = 2000): boolean {
-  for (let i = 0; i < guard; i++) {
-    if (done()) return true;
-    if (!bots.some((bot) => bot.step())) return done();
+export function pump(
+  bots: Bot[],
+  done: (steps: number) => boolean,
+  guard = 2000,
+): PumpResult {
+  let steps = 0;
+  while (steps < guard) {
+    if (done(steps)) return { reached: true, steps };
+    if (!bots.some((bot) => bot.step())) return { reached: done(steps), steps };
+    steps += 1;
   }
   throw new Error('bots did not reach the target position');
 }
