@@ -19,7 +19,8 @@ describe('demo routing', () => {
   });
 
   it('reads the three interfaces', () => {
-    expect(parseDemoHash('#/demo')?.view).toBe('panes');
+    expect(parseDemoHash('#/demo')?.view).toBe('index');
+    expect(parseDemoHash('#/demo/panes')?.view).toBe('panes');
     expect(parseDemoHash('#/demo/table')?.view).toBe('table');
     expect(parseDemoHash('#/demo/play/0')).toMatchObject({ view: 'play', seat: 0 });
     expect(parseDemoHash('#/demo/play/1')).toMatchObject({ view: 'play', seat: 1 });
@@ -57,6 +58,7 @@ describe('demo routing', () => {
 
   it('round-trips: what demoHash writes, parseDemoHash reads back', () => {
     const cases: Partial<DemoParams>[] = [
+      { view: 'index' },
       { view: 'panes' },
       { view: 'table', scenario: 'lobby', seed: 7 },
       { view: 'play', seat: 1, scenario: 'matchend', seed: 999, bot: false },

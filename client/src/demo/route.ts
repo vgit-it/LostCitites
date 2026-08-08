@@ -65,7 +65,10 @@ export function parseDemoHash(hash: string): DemoParams | null {
     bot: query.get('bot') !== '0',
   };
 
-  if (segments.length === 1) return { ...params, view: 'panes' };
+  // Bare #/demo is the index: it says what this is and offers the four ways
+  // in. The panes view gets its own segment so the two round-trip.
+  if (segments.length === 1) return { ...params, view: 'index' };
+  if (segments[1] === 'panes') return { ...params, view: 'panes' };
   if (segments[1] === 'table') return { ...params, view: 'table' };
   if (segments[1] === 'play') {
     return { ...params, view: 'play', seat: segments[2] === '1' ? 1 : 0 };
@@ -78,7 +81,13 @@ export function demoHash(params: Partial<DemoParams> = {}): string {
   const { view, seat, scenario, seed, bot } = { ...DEFAULT_PARAMS, ...params };
 
   const path =
-    view === 'table' ? '/demo/table' : view === 'play' ? `/demo/play/${seat}` : '/demo';
+    view === 'table'
+      ? '/demo/table'
+      : view === 'play'
+        ? `/demo/play/${seat}`
+        : view === 'panes'
+          ? '/demo/panes'
+          : '/demo';
 
   const query = new URLSearchParams({ scenario, seed: String(seed) });
   if (!bot) query.set('bot', '0');

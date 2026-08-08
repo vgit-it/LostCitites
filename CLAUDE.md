@@ -57,6 +57,7 @@ client/src/
   phone/         Phone, JoinScreen, Hand, PlaceActions, DrawTargets
   shared/Card.tsx  the one card visual, size-parameterised, used by both
   platform/      vibrate, wakeLock — the only files touching `navigator`
+  demo/          the server, running in the browser (see below)
 ```
 
 Two rules hold the structure together — preserve them when changing code:
@@ -70,6 +71,34 @@ Two rules hold the structure together — preserve them when changing code:
   lives on the client. The server ships `legalPlacements` and
   `legalDrawSources` inside each phone's view; the phone only greys out
   what's absent from those lists.
+
+### The demo (`client/src/demo/`)
+
+A server-free build for GitHub Pages, at `#/demo`. It is the one place a
+client file imports `server/`, and it earns that: because nothing above
+`server/transport.ts` imports Node, the whole server runs in a tab, so the
+demo uses the **real** `Room`, `rules.ts` and `views.ts` rather than
+fixtures that would drift.
+
+Both structural rules above still hold. `demo/` sits *above*
+`Table.tsx`/`Phone.tsx` and feeds them through the ordinary
+`SessionProvider`, so no component below those two learns a server exists.
+
+- `loopback.ts`, `bridge.ts` — two more `Connection` implementations
+  alongside `wsTransport.ts`. Loopback delivery is **deferred by default**;
+  `{ sync: true }` is only for the scenario fast-forward.
+- `bot.ts` — a *client*, not a server plugin: it plays from
+  `legalPlacements` / `legalDrawSources` on its own `PlayerView`. Drive it
+  with `pump()`, never from inside its own message handler.
+- `scenarios.ts` — a seed plus a predicate, played to through the protocol.
+  Never hand-build a `GameState`, and never add a server API for the demo's
+  benefit.
+- `route.ts` — imported **eagerly** by `main.tsx`, so it must stay free of
+  value imports from the rest of `demo/`, or the code split collapses and
+  the whole server lands in the main bundle.
+
+If the demo ever seems to need a change to `server/` or `shared/`, that is a
+finding worth reporting, not a patch to make quietly.
 
 ### State model
 

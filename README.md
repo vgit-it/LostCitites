@@ -24,11 +24,47 @@ production run, `npm run build` then `npm start` serves everything from
 :3001 on a single port.
 
 ```bash
-npm test             # 124 unit + integration tests, no I/O
+npm test             # unit + integration tests, no I/O
 npm run headless     # play a full 3-round match in the terminal
 npm run headless -- 12345    # replay a specific seed
 npm run typecheck
 ```
+
+## The demo
+
+There is a second way to run this that needs no server, no install and no
+LAN — it is what gets deployed to GitHub Pages, and it works locally too at
+`http://localhost:5173/#/demo`.
+
+| Route | What it is |
+|---|---|
+| `#/demo` | pick a position and a seed |
+| `#/demo/panes` | all three interfaces at once, sharing one match |
+| `#/demo/table` | the table, full screen |
+| `#/demo/play/0`, `#/demo/play/1` | a phone, full screen |
+
+`?scenario=midround&seed=1234&bot=0` tunes any of them.
+
+**It runs the real server in the browser.** Only `server/index.ts` and
+`server/wsTransport.ts` import anything from Node; everything above the
+`Connection` seam in `server/transport.ts` is pure TypeScript, so
+`registry`, `router`, `room`, `views` and `rules` all run in a tab. The demo
+adds two more implementations of that one interface — an in-memory loopback
+and a `postMessage` bridge for the panes — and changes nothing else. So the
+rules, the validation and the view filtering are the ones that ship, and a
+screen in the demo cannot drift from the product the way a fixture would.
+
+A scenario is a **seed and a predicate**, not a saved state: bots play both
+seats through the ordinary protocol until the position is reached, then hand
+over. That makes a screen a pure function of `(scenario, seed)` — the same
+link shows the same cards to whoever you send it to.
+
+Routes live in the hash because a static host has no SPA fallback and is not
+guaranteed to sit at the domain root. The demo is a lazily-imported chunk,
+so the LAN build never downloads it.
+
+Deployment is in `.github/workflows/pages.yml`: `main` publishes to the site
+root and each pull request to `pr-N/`, both on the `gh-pages` branch.
 
 ## Architecture
 
