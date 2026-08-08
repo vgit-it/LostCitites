@@ -25,6 +25,20 @@ import { FLIGHT_MS, animate } from './platform/motion';
 
 afterEach(cleanup);
 
+type PointHitTest = (x: number, y: number) => Element | null;
+
+/**
+ * jsdom does not define document.elementFromPoint, so it cannot be spied on
+ * — it has to be installed. Removed again after each test.
+ */
+function stubElementFromPoint(fn: PointHitTest): void {
+  (document as unknown as { elementFromPoint?: PointHitTest }).elementFromPoint = fn;
+}
+
+afterEach(() => {
+  delete (document as unknown as { elementFromPoint?: PointHitTest }).elementFromPoint;
+});
+
 const num = (colour: Colour, v: number): CardModel => ({
   id: `${colour}-${v}`,
   colour,
@@ -151,6 +165,75 @@ describe('hand ordering', () => {
     fireEvent.click(screen.getByLabelText('blue 2'));
     expect(onSelect).toHaveBeenCalledWith('blue-2');
     expect(container.querySelector('[data-card-id="blue-2"]')?.className).not.toContain('is-muted');
+  });
+
+  it('ignores a pointer-driven click, because the scrub already handled it', () => {
+    // A press and release across two cards fires click on their common
+    // ancestor, so click cannot be trusted for pointers. detail tells them
+    // apart: 0 is a keyboard activation, >= 1 came from a pointer.
+    const onSelect = vi.fn();
+    render(
+      <Hand
+        cards={[num('blue', 2)]}
+        legalPlacements={{ 'blue-2': ['discard'] }}
+        selectedId={null}
+        onSelect={onSelect}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('blue 2'), { detail: 1 });
+    expect(onSelect).not.toHaveBeenCalled();
+
+    // Enter and Space synthesise a click with no pointer behind it.
+    fireEvent.click(screen.getByLabelText('blue 2'), { detail: 0 });
+    expect(onSelect).toHaveBeenCalledWith('blue-2');
+  });
+
+  it('raises each card the thumb slides over', () => {
+    const onSelect = vi.fn();
+    const { container } = render(
+      <Hand
+        cards={[num('blue', 2), num('blue', 5)]}
+        legalPlacements={{ 'blue-2': ['discard'], 'blue-5': ['discard'] }}
+        selectedId={null}
+        onSelect={onSelect}
+      />,
+    );
+
+    const list = container.querySelector('.hand--fan') as HTMLElement;
+    const at = (id: string) => container.querySelector(`[data-card-id="${id}"]`) as Element;
+
+    // jsdom implements no layout and does not define elementFromPoint at
+    // all, so stand in for the hit test a browser would do.
+    const from = vi.fn<(x: number, y: number) => Element | null>();
+    from.mockReturnValueOnce(at('blue-2')).mockReturnValueOnce(at('blue-5'));
+    stubElementFromPoint(from);
+
+    fireEvent.pointerDown(list, { clientX: 10, clientY: 10, button: 0 });
+    fireEvent.pointerMove(list, { clientX: 40, clientY: 10 });
+
+    expect(onSelect).toHaveBeenNthCalledWith(1, 'blue-2');
+    expect(onSelect).toHaveBeenNthCalledWith(2, 'blue-5');
+  });
+
+  it('does not scrub once the pointer is up', () => {
+    const onSelect = vi.fn();
+    const { container } = render(
+      <Hand
+        cards={[num('blue', 2)]}
+        legalPlacements={{ 'blue-2': ['discard'] }}
+        selectedId={null}
+        onSelect={onSelect}
+      />,
+    );
+
+    const list = container.querySelector('.hand--fan') as HTMLElement;
+    stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
+
+    fireEvent.pointerUp(list, { clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(list, { clientX: 20, clientY: 10 });
+
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
   it('is genuinely inert when the turn is not this phone to act on', () => {

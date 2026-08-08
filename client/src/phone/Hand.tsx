@@ -3,8 +3,10 @@
 //
 // Sorted by colour then value so the same card is always in the same place.
 
+import { useRef } from 'react';
 import { COLOURS, Card as CardModel, PlaceTarget } from '@shared/types';
 import { Card } from '../shared/Card';
+import { vibrateTick } from '../platform/vibrate';
 
 export interface HandProps {
   cards: CardModel[];
@@ -111,6 +113,19 @@ export function slotTransform(slot: FanSlot, state: SlotState): string {
   }
 }
 
+/**
+ * The card under a point, or null.
+ *
+ * Hit-testing through the document rather than per-card refs is what makes
+ * scrubbing work: the thumb slides across slivers of card and every one of
+ * them resolves, including the parts overlapped by a neighbour.
+ */
+function cardIdAt(x: number, y: number): string | null {
+  if (typeof document.elementFromPoint !== 'function') return null; // jsdom
+  return document.elementFromPoint(x, y)?.closest('[data-card-id]')?.getAttribute('data-card-id')
+    ?? null;
+}
+
 export function Hand({
   cards,
   legalPlacements,
@@ -121,13 +136,49 @@ export function Hand({
 }: HandProps) {
   const ordered = sortHand(cards);
   const slots = fanLayout(ordered.length);
+  const scrubbing = useRef(false);
 
   const className = ['hand', 'hand--fan', muted && 'is-muted'].filter(Boolean).join(' ');
+
+  /** Raise whatever the thumb is over, if it is not already raised. */
+  function raiseAt(x: number, y: number): void {
+    const id = cardIdAt(x, y);
+    if (!id || id === selectedId) return;
+    onSelect(id);
+    vibrateTick();
+  }
+
+  function handlePointerDown(event: React.PointerEvent<HTMLUListElement>): void {
+    if (disabled || event.button !== 0) return;
+    scrubbing.current = true;
+    // Capture on the list, not the card: the thumb will leave the card it
+    // started on, and we still want its moves.
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    raiseAt(event.clientX, event.clientY);
+  }
+
+  function handlePointerMove(event: React.PointerEvent<HTMLUListElement>): void {
+    if (!scrubbing.current || disabled) return;
+    raiseAt(event.clientX, event.clientY);
+  }
+
+  function endScrub(event: React.PointerEvent<HTMLUListElement>): void {
+    scrubbing.current = false;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+  }
 
   return (
     // role="list" is explicit because Safari VoiceOver drops list semantics
     // from a ul with list-style: none.
-    <ul className={className} role="list" aria-label="Your hand">
+    <ul
+      className={className}
+      role="list"
+      aria-label="Your hand"
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={endScrub}
+      onPointerCancel={endScrub}
+    >
       {ordered.map((card, i) => {
         const playable = (legalPlacements[card.id] ?? []).length > 0;
         const selected = card.id === selectedId;
@@ -154,7 +205,15 @@ export function Hand({
               // disabled. An unplayable card stays live so it can be tapped
               // and explain itself.
               dimmed={disabled}
-              onClick={() => onSelect(card.id)}
+              // Keyboard only. A pointer-driven click is redundant here —
+              // the scrub already raised this card on pointerdown — and it
+              // is unreliable besides: press and release on two different
+              // cards fires click on their common ancestor, never the
+              // button. detail === 0 is the one reliable way to tell the
+              // two apart, with no timers or flags.
+              onClick={(event) => {
+                if (event.detail === 0) onSelect(card.id);
+              }}
             />
           </li>
         );

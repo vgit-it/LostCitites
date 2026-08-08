@@ -524,6 +524,12 @@
   box-shadow: 0 6px 14px rgb(31 29 26 / 0.35);
 }
 
+/* Scoped to the raised card and nowhere else. Blanketing .phone with this
+   would hand every vertical gesture to us — including iOS's swipe-back. */
+.hand__slot.is-lifted {
+  touch-action: none;
+}
+
 .hand--fan.is-muted {
   opacity: 0.45;
   filter: grayscale(0.5);
