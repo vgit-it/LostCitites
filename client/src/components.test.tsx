@@ -11,7 +11,16 @@ import { Column } from './table/Column';
 import { profilePoints } from './table/ElevationProfile';
 import { DiscardRow, deckUrgency } from './table/DiscardRow';
 import { PlayerBreakdown } from './table/RoundEnd';
-import { Hand, drawnCardId, fanLayout, flickIntent, slotTransform, sortHand } from './phone/Hand';
+import { Hand, drawnCardId, sortHand } from './phone/Hand';
+import { SPREAD_MAX, SPREAD_MIN, fanLayout, fanSpan, slotTransform } from './phone/fan';
+import {
+  HOLD_MS,
+  MOVE_SLOP_PX,
+  chooseDrop,
+  gestureReducer,
+  initialGesture,
+} from './phone/gesture';
+import { DropZones, expeditionLabel } from './phone/DropZones';
 import { CardFlight } from './phone/CardFlight';
 import { DrawTargets } from './phone/DrawTargets';
 import { PlaceActions, expeditionHint, placementWeight } from './phone/PlaceActions';
@@ -170,6 +179,20 @@ describe('hand ordering', () => {
     expect(container.querySelector('[data-card-id="blue-2"]')?.className).not.toContain('is-muted');
   });
 
+  it('stops marking cards unplayable once there is no placement to make', () => {
+    // The server sends no legalPlacements during the draw phase, so reading
+    // it then would grey out the entire hand — and the hand's colours are
+    // exactly what decides which discard is worth taking.
+    const { container } = render(
+      <Hand cards={[num('blue', 2)]} legalPlacements={{}} selectedId={null} onSelect={vi.fn()} muted />,
+    );
+
+    const list = container.querySelector('.hand--fan') as HTMLElement;
+    expect(container.querySelector('[data-card-id="blue-2"]')?.className).not.toContain('is-muted');
+    expect(list.className).toContain('is-muted'); // inert...
+    expect(list.className).not.toContain('is-away'); // ...but not receded
+  });
+
   it('ignores a pointer-driven click, because the scrub already handled it', () => {
     // A press and release across two cards fires click on their common
     // ancestor, so click cannot be trusted for pointers. detail tells them
@@ -192,7 +215,7 @@ describe('hand ordering', () => {
     expect(onSelect).toHaveBeenCalledWith('blue-2');
   });
 
-  it('raises each card the thumb slides over', () => {
+  it('raises the card under a press, so a plain tap still feels immediate', () => {
     const onSelect = vi.fn();
     const { container } = render(
       <Hand
@@ -204,22 +227,130 @@ describe('hand ordering', () => {
     );
 
     const list = container.querySelector('.hand--fan') as HTMLElement;
-    const at = (id: string) => container.querySelector(`[data-card-id="${id}"]`) as Element;
-
     // jsdom implements no layout and does not define elementFromPoint at
     // all, so stand in for the hit test a browser would do.
-    const from = vi.fn<(x: number, y: number) => Element | null>();
-    from.mockReturnValueOnce(at('blue-2')).mockReturnValueOnce(at('blue-5'));
-    stubElementFromPoint(from);
+    stubElementFromPoint(() => container.querySelector('[data-card-id="blue-5"]'));
 
     fireEvent.pointerDown(list, { clientX: 10, clientY: 10, button: 0 });
-    fireEvent.pointerMove(list, { clientX: 40, clientY: 10 });
-
-    expect(onSelect).toHaveBeenNthCalledWith(1, 'blue-2');
-    expect(onSelect).toHaveBeenNthCalledWith(2, 'blue-5');
+    expect(onSelect).toHaveBeenCalledWith('blue-5');
   });
 
-  it('does not scrub once the pointer is up', () => {
+  it('fans the hand rather than choosing, once the thumb travels', () => {
+    const onSelect = vi.fn();
+    const { container } = render(
+      <Hand
+        cards={[num('blue', 2), num('blue', 5)]}
+        legalPlacements={{ 'blue-2': ['discard'], 'blue-5': ['discard'] }}
+        selectedId="blue-2"
+        onSelect={onSelect}
+      />,
+    );
+
+    const list = container.querySelector('.hand--fan') as HTMLElement;
+    stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
+    const before = list.style.getPropertyValue('--fan-span');
+
+    fireEvent.pointerDown(list, { clientX: 10, clientY: 10, button: 0 });
+    fireEvent.pointerMove(list, { clientX: 10 + MOVE_SLOP_PX + 80, clientY: 12 });
+
+    expect(list.className).toContain('is-fanning');
+    // The geometry actually moved under the thumb.
+    expect(list.style.getPropertyValue('--fan-span')).not.toBe(before);
+    // And fanning is not choosing: the raise from the press is withdrawn.
+    expect(onSelect).toHaveBeenLastCalledWith(null);
+  });
+
+  it('picks a card up when the press is held still', () => {
+    vi.useFakeTimers();
+    try {
+      const onLift = vi.fn();
+      const { container } = render(
+        <Hand
+          cards={[num('blue', 2)]}
+          legalPlacements={{ 'blue-2': ['discard'] }}
+          selectedId={null}
+          onSelect={vi.fn()}
+          onLift={onLift}
+        />,
+      );
+
+      const list = container.querySelector('.hand--fan') as HTMLElement;
+      stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
+
+      fireEvent.pointerDown(list, { clientX: 10, clientY: 10, button: 0 });
+      act(() => void vi.advanceTimersByTime(HOLD_MS));
+
+      expect(onLift).toHaveBeenCalledWith('blue-2');
+      expect(container.querySelector('[data-card-id="blue-2"]')?.className).toContain(
+        'is-dragging',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not pick a card up if the thumb moved first', () => {
+    vi.useFakeTimers();
+    try {
+      const onLift = vi.fn();
+      const { container } = render(
+        <Hand
+          cards={[num('blue', 2)]}
+          legalPlacements={{ 'blue-2': ['discard'] }}
+          selectedId={null}
+          onSelect={vi.fn()}
+          onLift={onLift}
+        />,
+      );
+
+      const list = container.querySelector('.hand--fan') as HTMLElement;
+      stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
+
+      fireEvent.pointerDown(list, { clientX: 10, clientY: 10, button: 0 });
+      fireEvent.pointerMove(list, { clientX: 10 + MOVE_SLOP_PX + 30, clientY: 10 });
+      act(() => void vi.advanceTimersByTime(HOLD_MS * 4));
+
+      expect(onLift).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reports where a held card was let go, and says so when it was cancelled', () => {
+    vi.useFakeTimers();
+    try {
+      const onRelease = vi.fn();
+      const { container } = render(
+        <Hand
+          cards={[num('blue', 2)]}
+          legalPlacements={{ 'blue-2': ['discard'] }}
+          selectedId={null}
+          onSelect={vi.fn()}
+          onRelease={onRelease}
+        />,
+      );
+
+      const list = container.querySelector('.hand--fan') as HTMLElement;
+      stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
+
+      const lift = () => {
+        fireEvent.pointerDown(list, { clientX: 10, clientY: 10, button: 0 });
+        act(() => void vi.advanceTimersByTime(HOLD_MS));
+      };
+
+      lift();
+      fireEvent.pointerUp(list, { clientX: 120, clientY: 40 });
+      expect(onRelease).toHaveBeenLastCalledWith('blue-2', { x: 120, y: 40 });
+
+      lift();
+      fireEvent.pointerCancel(list, { clientX: 120, clientY: 40 });
+      expect(onRelease).toHaveBeenLastCalledWith('blue-2', null);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ignores movement when no gesture is running', () => {
     const onSelect = vi.fn();
     const { container } = render(
       <Hand
@@ -234,9 +365,10 @@ describe('hand ordering', () => {
     stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
 
     fireEvent.pointerUp(list, { clientX: 10, clientY: 10 });
-    fireEvent.pointerMove(list, { clientX: 20, clientY: 10 });
+    fireEvent.pointerMove(list, { clientX: 90, clientY: 10 });
 
     expect(onSelect).not.toHaveBeenCalled();
+    expect(list.className).not.toContain('is-fanning');
   });
 
   it('is genuinely inert when the turn is not this phone to act on', () => {
@@ -314,6 +446,41 @@ describe('fan layout', () => {
     const spanInCardWidths = (slots[7].tx - slots[0].tx) / 100 + 1;
     expect(spanInCardWidths).toBeLessThan(3.9);
     expect(spanInCardWidths * 0.24 * 100).toBeLessThan(92); // vw at 24vw cards
+  });
+
+  it('opens and closes with the spread, and rests at the shape it always had', () => {
+    const closed = fanLayout(8, SPREAD_MIN);
+    const rest = fanLayout(8);
+    const open = fanLayout(8, SPREAD_MAX);
+
+    // Both the tilt and the gap between neighbours move — tilt alone would
+    // rotate the cards without separating them, since the arc radius falls
+    // as the step grows and holds the spacing constant.
+    for (const [tighter, wider] of [
+      [closed, rest],
+      [rest, open],
+    ] as const) {
+      expect(Math.abs(wider[0].angle)).toBeGreaterThan(Math.abs(tighter[0].angle));
+      expect(Math.abs(wider[0].tx)).toBeGreaterThan(Math.abs(tighter[0].tx));
+    }
+  });
+
+  it('reports a span the card size can be divided by, at every spread', () => {
+    // The contract with .hand--fan: --fan-card-w is (viewport / span), so a
+    // wider fan yields smaller cards rather than cards that overflow a box
+    // nothing in the app is allowed to clip.
+    expect(fanSpan(0)).toBe(1);
+    expect(fanSpan(1)).toBe(1);
+    // Centre-to-centre plus the outer cards' *rotated* bounding boxes, not
+    // plus one card width — the tilt is what made the fan overflow a 390px
+    // viewport by 6px on each side.
+    expect(fanSpan(8)).toBeCloseTo(4.1345, 3);
+    expect(fanSpan(8, SPREAD_MAX)).toBeGreaterThan(fanSpan(8, SPREAD_MIN));
+
+    // Even thrown fully open, a full hand stays inside a narrow phone once
+    // the span has been paid for in card width.
+    const widest = fanSpan(8, SPREAD_MAX);
+    expect((360 - 24) / widest).toBeGreaterThan(56); // px per card, still legible
   });
 
   it('lifts a card clear of the fan and levels it', () => {
@@ -547,49 +714,157 @@ describe('elevation profile', () => {
   });
 });
 
-describe('flick intent', () => {
-  it('plays on a decisive throw upward', () => {
-    expect(flickIntent(-60, -0.2)).toBe('play');
-    // Short but fast counts too.
-    expect(flickIntent(-30, -0.8)).toBe('play');
+describe('the gesture machine', () => {
+  const down = { t: 'down', cardId: 'blue-2', x: 100, y: 300 } as const;
+
+  it('holds a press pending until something tells it what the press was', () => {
+    const state = gestureReducer(initialGesture, down);
+    expect(state.phase).toBe('pending');
+    expect(state.cardId).toBe('blue-2');
   });
 
-  it('releases downward rather than discarding', () => {
-    // Down is the change-of-mind gesture, so it must not be wired to the
-    // irreversible half of a turn.
-    expect(flickIntent(50, 0.2)).toBe('release');
-    expect(flickIntent(25, 0.7)).toBe('release');
+  it('turns a press that travels into a fan, and moves the spread with it', () => {
+    const pressed = gestureReducer(initialGesture, down);
+    const fanned = gestureReducer(pressed, { t: 'move', x: 100 + MOVE_SLOP_PX + 60, y: 302 });
+
+    expect(fanned.phase).toBe('fanning');
+    expect(fanned.spread).toBeGreaterThan(pressed.spread);
   });
 
-  it('ignores a nudge', () => {
-    expect(flickIntent(0, 0)).toBe('none');
-    expect(flickIntent(-20, -0.1)).toBe('none');
-    expect(flickIntent(30, 0.1)).toBe('none');
+  it('does not fan on a movement too small to be one', () => {
+    const pressed = gestureReducer(initialGesture, down);
+    const nudged = gestureReducer(pressed, { t: 'move', x: 100 + MOVE_SLOP_PX - 1, y: 300 });
+
+    expect(nudged.phase).toBe('pending');
+    expect(nudged.spread).toBe(pressed.spread);
   });
 
-  it('reports a flick up through the hand, but not a sideways scrub', () => {
-    const onFlick = vi.fn();
+  it('cancels the pickup on a vertical drag too — that is not a fan, but it is not still either', () => {
+    const pressed = gestureReducer(initialGesture, down);
+    const dragged = gestureReducer(pressed, { t: 'move', x: 100, y: 300 + MOVE_SLOP_PX + 40 });
+
+    expect(dragged.phase).toBe('fanning');
+    expect(gestureReducer(dragged, { t: 'hold' }).phase).toBe('fanning');
+  });
+
+  it('lifts on a hold, and only from a press that is still a press', () => {
+    const pressed = gestureReducer(initialGesture, down);
+    expect(gestureReducer(pressed, { t: 'hold' }).phase).toBe('lifted');
+
+    // A press that landed on no card has nothing to pick up.
+    const onNothing = gestureReducer(initialGesture, { ...down, cardId: null });
+    expect(gestureReducer(onNothing, { t: 'hold' }).phase).toBe('pending');
+  });
+
+  it('carries a lifted card with the thumb', () => {
+    const lifted = gestureReducer(gestureReducer(initialGesture, down), { t: 'hold' });
+    const moved = gestureReducer(lifted, { t: 'move', x: 140, y: 180 });
+
+    expect(moved.phase).toBe('lifted');
+    expect(moved.drag).toEqual({ x: 40, y: -120 });
+  });
+
+  it('clamps the spread at both ends however far the thumb goes', () => {
+    const pressed = gestureReducer(initialGesture, down);
+    expect(gestureReducer(pressed, { t: 'move', x: 100000, y: 300 }).spread).toBe(SPREAD_MAX);
+    expect(gestureReducer(pressed, { t: 'move', x: -100000, y: 300 }).spread).toBe(SPREAD_MIN);
+  });
+
+  it('keeps the spread across gestures — the hand holds the shape you left it in', () => {
+    const fanned = gestureReducer(gestureReducer(initialGesture, down), {
+      t: 'move',
+      x: 100 + MOVE_SLOP_PX + 60,
+      y: 300,
+    });
+    const settled = gestureReducer(fanned, { t: 'up' });
+
+    expect(settled.phase).toBe('idle');
+    expect(settled.spread).toBe(fanned.spread);
+    expect(settled.drag).toEqual({ x: 0, y: 0 });
+  });
+});
+
+describe('what a release meant', () => {
+  it('places on a zone the server offered', () => {
+    expect(chooseDrop('expedition', ['expedition', 'discard'])).toEqual({
+      kind: 'place',
+      target: 'expedition',
+    });
+  });
+
+  it('refuses a zone it did not, rather than silently swallowing the drop', () => {
+    expect(chooseDrop('expedition', ['discard'])).toEqual({
+      kind: 'refuse',
+      target: 'expedition',
+    });
+  });
+
+  it('treats neutral space as the cancel gesture', () => {
+    // The whole reason both commits could move to the top of the screen:
+    // changing your mind is now "let go anywhere else" rather than a
+    // downward flick, which freed the direction discard needed.
+    expect(chooseDrop(null, ['expedition', 'discard'])).toEqual({ kind: 'cancel' });
+  });
+});
+
+describe('drop zones', () => {
+  const started = [num('blue', 3)];
+
+  it('names the destination, and prices it when the column is unstarted', () => {
+    expect(expeditionLabel(started, num('blue', 7))).toBe('Play to blue');
+    expect(expeditionLabel([], num('blue', 7))).toBe('Start blue \u00b7 \u221220');
+    // A wager onto an empty column is not the -20 commitment; the first
+    // number is. placementWeight already draws that line.
+    expect(expeditionLabel([], wager('blue', 1))).toBe('Play to blue');
+  });
+
+  it('reads the column back on a target the server did not offer', () => {
     const { container } = render(
-      <Hand
-        cards={[num('blue', 2)]}
-        legalPlacements={{ 'blue-2': ['expedition'] }}
-        selectedId="blue-2"
-        onSelect={vi.fn()}
-        onFlick={onFlick}
+      <DropZones
+        card={num('blue', 2)}
+        targets={['discard']}
+        column={[num('blue', 9)]}
+        hovered={null}
       />,
     );
 
-    const list = container.querySelector('.hand--fan') as HTMLElement;
-    stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
+    const expedition = container.querySelector('[data-drop="expedition"]') as HTMLElement;
+    expect(expedition.className).toContain('is-dead');
+    expect(expedition.textContent).toContain('blue is at 9');
+    expect(
+      (container.querySelector('[data-drop="discard"]') as HTMLElement).className,
+    ).not.toContain('is-dead');
+  });
 
-    fireEvent.pointerDown(list, { clientX: 100, clientY: 300, button: 0 });
-    fireEvent.pointerUp(list, { clientX: 100, clientY: 220 });
-    expect(onFlick).toHaveBeenCalledWith('play', 'blue-2');
+  it('arms the zone the card is actually over', () => {
+    const { container } = render(
+      <DropZones
+        card={num('blue', 7)}
+        targets={['expedition', 'discard']}
+        column={started}
+        hovered="discard"
+      />,
+    );
 
-    onFlick.mockClear();
-    fireEvent.pointerDown(list, { clientX: 100, clientY: 300, button: 0 });
-    fireEvent.pointerUp(list, { clientX: 180, clientY: 302 });
-    expect(onFlick).not.toHaveBeenCalled();
+    expect(
+      (container.querySelector('[data-drop="expedition"]') as HTMLElement).className,
+    ).not.toContain('is-over');
+    expect((container.querySelector('[data-drop="discard"]') as HTMLElement).className).toContain(
+      'is-over',
+    );
+  });
+
+  it('stays out of the accessibility tree — the labelled route is PlaceActions', () => {
+    const { container } = render(
+      <DropZones
+        card={num('blue', 7)}
+        targets={['expedition', 'discard']}
+        column={started}
+        hovered={null}
+      />,
+    );
+
+    expect(container.querySelector('.drop-zones')?.getAttribute('aria-hidden')).toBe('true');
   });
 });
 
@@ -688,7 +963,7 @@ describe('board strip', () => {
 describe('tray', () => {
   it('remounts its contents on a mode change so the enter animation runs', () => {
     const { container, rerender } = render(
-      <Tray mode="board">
+      <Tray mode="table">
         <p>board</p>
       </Tray>,
     );

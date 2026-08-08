@@ -1,4 +1,11 @@
-// The draw half of a turn: the deck plus the five discard tops.
+// The deck plus the five discard tops — the top of the phone's table.
+//
+// Stable furniture rather than a phase screen: it is on show for the whole
+// turn, because which cards are face up is exactly the information a player
+// needs while deciding what to place, and reading it used to mean looking up
+// at the tablet. `interactive` is what the draw phase turns on; until then
+// the same row is there to be read and not tapped.
+//
 // Empty piles and the just-discarded card are greyed and non-tappable,
 // entirely on the strength of the server's legalDrawSources.
 
@@ -11,6 +18,8 @@ export interface DrawTargetsProps {
   legalDrawSources: DrawSource[];
   blockedDrawCardId: string | null;
   busy?: boolean;
+  /** False outside the draw phase: the same row, to be read and not tapped. */
+  interactive?: boolean;
   onDraw: (source: DrawSource) => void;
 }
 
@@ -20,16 +29,17 @@ export function DrawTargets({
   legalDrawSources,
   blockedDrawCardId,
   busy,
+  interactive = true,
   onDraw,
 }: DrawTargetsProps) {
-  const deckLegal = legalDrawSources.some((s) => s.kind === 'deck');
+  const deckLegal = interactive && legalDrawSources.some((s) => s.kind === 'deck');
   const legalColours = new Set(
-    legalDrawSources.flatMap((s) => (s.kind === 'discard' ? [s.colour] : [])),
+    interactive ? legalDrawSources.flatMap((s) => (s.kind === 'discard' ? [s.colour] : [])) : [],
   );
 
   return (
-    <div className="draw-targets">
-      <h2 className="draw-targets__title">Draw a card</h2>
+    <div className={`draw-targets${interactive ? '' : ' draw-targets--reading'}`}>
+      <h2 className="draw-targets__title">{interactive ? 'Draw a card' : 'On the table'}</h2>
 
       <button
         type="button"
@@ -46,7 +56,7 @@ export function DrawTargets({
         {COLOURS.map((colour) => {
           const top = discardTops[colour];
           if (!top) {
-            return <CardSlot key={colour} colour={colour} size="lg" label={`${colour} empty`} />;
+            return <CardSlot key={colour} colour={colour} size="md" label={`${colour} empty`} />;
           }
 
           const blocked = top.id === blockedDrawCardId;
@@ -56,7 +66,7 @@ export function DrawTargets({
             <span key={colour} data-draw={colour} className="draw-targets__pile">
             <Card
               card={top}
-              size="lg"
+              size="md"
               dimmed={busy || !legalColours.has(colour)}
               title={blocked ? 'You just discarded this' : undefined}
               onClick={() => onDraw({ kind: 'discard', colour })}
@@ -66,7 +76,7 @@ export function DrawTargets({
         })}
       </div>
 
-      {blockedDrawCardId && (
+      {interactive && blockedDrawCardId && (
         <p className="draw-targets__note label">
           The card you just discarded is locked for this turn.
         </p>
