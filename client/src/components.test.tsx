@@ -14,6 +14,14 @@ import { PlayerBreakdown } from './table/RoundEnd';
 import { Hand, sortHand } from './phone/Hand';
 import { DrawTargets } from './phone/DrawTargets';
 import { PlaceActions, expeditionHint } from './phone/PlaceActions';
+import {
+  canVibrate,
+  resetVibrateThrottle,
+  vibrateCommit,
+  vibrateReject,
+  vibrateTick,
+} from './platform/vibrate';
+import { FLIGHT_MS, animate } from './platform/motion';
 
 afterEach(cleanup);
 
@@ -270,5 +278,79 @@ describe('elevation profile', () => {
     expect(profilePoints([num('blue', 2), num('blue', 10)], 'up')).toBe(
       '0.000,1.000 0.000,0.500 1.000,0.500 1.000,0.000',
     );
+  });
+});
+
+describe('haptics', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    resetVibrateThrottle();
+  });
+
+  it('is silent where the device has no motor', () => {
+    vi.stubGlobal('navigator', {});
+    expect(canVibrate()).toBe(false);
+    expect(() => vibrateTick()).not.toThrow();
+  });
+
+  it('throttles scrub ticks so sliding a thumb cannot machine-gun the motor', () => {
+    const vibrate = vi.fn();
+    vi.stubGlobal('navigator', { vibrate });
+
+    vibrateTick();
+    vibrateTick();
+    vibrateTick();
+
+    expect(vibrate).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not throttle the deliberate one-off haptics', () => {
+    const vibrate = vi.fn();
+    vi.stubGlobal('navigator', { vibrate });
+
+    vibrateCommit();
+    vibrateReject();
+
+    expect(vibrate).toHaveBeenNthCalledWith(1, [12, 40, 18]);
+    expect(vibrate).toHaveBeenNthCalledWith(2, [30, 60, 30]);
+  });
+
+  it('survives an engine that exposes vibrate and then refuses it', () => {
+    vi.stubGlobal('navigator', {
+      vibrate: () => {
+        throw new Error('needs a user gesture');
+      },
+    });
+    expect(() => vibrateCommit()).not.toThrow();
+  });
+});
+
+describe('motion', () => {
+  it('resolves instead of throwing where WAAPI is missing', async () => {
+    // jsdom has no Element.animate. Every flight in the app awaits this, so
+    // an unguarded call would hang the component, not just skip the motion.
+    const el = document.createElement('div');
+    await expect(animate(el, [{ opacity: 0 }], { duration: 200 })).resolves.toBeUndefined();
+  });
+
+  it('resolves when the animation is cancelled mid-flight', async () => {
+    // The real case: the server's next `state` unmounts the card while it flies.
+    const el = document.createElement('div');
+    (el as unknown as { animate: unknown }).animate = () => ({
+      finished: Promise.reject(new Error('cancelled')),
+    });
+    await expect(animate(el, [{ opacity: 0 }], { duration: 200 })).resolves.toBeUndefined();
+  });
+
+  it('collapses the duration under reduced motion', async () => {
+    const spy = vi.fn(() => ({ finished: Promise.resolve() }));
+    const el = document.createElement('div');
+    (el as unknown as { animate: unknown }).animate = spy;
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+
+    await animate(el, [{ opacity: 0 }], { duration: FLIGHT_MS });
+
+    expect(spy).toHaveBeenCalledWith([{ opacity: 0 }], { duration: 0 });
+    vi.unstubAllGlobals();
   });
 });
