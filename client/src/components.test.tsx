@@ -4,18 +4,43 @@
 // no mocking — which is the point of keeping them presentational.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Card as CardModel, Colour, PublicPlayerView } from '@shared/types';
 import { Card } from './shared/Card';
 import { Column } from './table/Column';
 import { profilePoints } from './table/ElevationProfile';
 import { DiscardRow, deckUrgency } from './table/DiscardRow';
 import { PlayerBreakdown } from './table/RoundEnd';
-import { Hand, sortHand } from './phone/Hand';
+import { Hand, drawnCardId, fanLayout, flickIntent, slotTransform, sortHand } from './phone/Hand';
+import { CardFlight } from './phone/CardFlight';
 import { DrawTargets } from './phone/DrawTargets';
-import { PlaceActions, expeditionHint } from './phone/PlaceActions';
+import { PlaceActions, expeditionHint, placementWeight } from './phone/PlaceActions';
+import { BoardStrip, topOf, wagersIn } from './phone/BoardStrip';
+import { Tray } from './phone/Tray';
+import {
+  canVibrate,
+  resetVibrateThrottle,
+  vibrateCommit,
+  vibrateReject,
+  vibrateTick,
+} from './platform/vibrate';
+import { FLIGHT_MS, animate } from './platform/motion';
 
 afterEach(cleanup);
+
+type PointHitTest = (x: number, y: number) => Element | null;
+
+/**
+ * jsdom does not define document.elementFromPoint, so it cannot be spied on
+ * — it has to be installed. Removed again after each test.
+ */
+function stubElementFromPoint(fn: PointHitTest): void {
+  (document as unknown as { elementFromPoint?: PointHitTest }).elementFromPoint = fn;
+}
+
+afterEach(() => {
+  delete (document as unknown as { elementFromPoint?: PointHitTest }).elementFromPoint;
+});
 
 const num = (colour: Colour, v: number): CardModel => ({
   id: `${colour}-${v}`,
@@ -52,6 +77,23 @@ describe('Card', () => {
     render(<Card card={num('green', 4)} dimmed onClick={onClick} />);
     fireEvent.click(screen.getByLabelText('green 4'));
     expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it('carries a corner index alongside the big numeral', () => {
+    // Both are in the DOM on every card; CSS shows the index only inside a
+    // fan. Note this means a numeral matches twice — use getAllByText.
+    const { container } = render(<Card card={num('blue', 7)} />);
+    expect(container.querySelector('.card__index')?.textContent).toBe('7');
+    expect(container.querySelector('.card__value')?.textContent).toBe('7');
+  });
+
+  it('announces toggle state only when it is actually selectable', () => {
+    // A table card is not a toggle; aria-pressed="false" would claim it is.
+    const { container: plain } = render(<Card card={num('blue', 7)} />);
+    expect(plain.querySelector('.card')?.hasAttribute('aria-pressed')).toBe(false);
+
+    const { container: picked } = render(<Card card={num('blue', 8)} selected />);
+    expect(picked.querySelector('.card')?.getAttribute('aria-pressed')).toBe('true');
   });
 });
 
@@ -105,9 +147,12 @@ describe('hand ordering', () => {
     ]);
   });
 
-  it('greys a card with no legal target and does not select it', () => {
+  it('mutes a card with no legal target but still lets you ask why', () => {
+    // Changed by design: an unplayable card used to be `disabled`, so there
+    // was no way to find out why it could not be played. It is now selectable
+    // and the tray answers with expeditionHint().
     const onSelect = vi.fn();
-    render(
+    const { container } = render(
       <Hand
         cards={[num('blue', 2), num('red', 5)]}
         legalPlacements={{ 'blue-2': ['discard'] }}
@@ -117,10 +162,171 @@ describe('hand ordering', () => {
     );
 
     fireEvent.click(screen.getByLabelText('red 5'));
-    expect(onSelect).not.toHaveBeenCalled();
+    expect(onSelect).toHaveBeenCalledWith('red-5');
+    expect(container.querySelector('[data-card-id="red-5"]')?.className).toContain('is-muted');
 
     fireEvent.click(screen.getByLabelText('blue 2'));
     expect(onSelect).toHaveBeenCalledWith('blue-2');
+    expect(container.querySelector('[data-card-id="blue-2"]')?.className).not.toContain('is-muted');
+  });
+
+  it('ignores a pointer-driven click, because the scrub already handled it', () => {
+    // A press and release across two cards fires click on their common
+    // ancestor, so click cannot be trusted for pointers. detail tells them
+    // apart: 0 is a keyboard activation, >= 1 came from a pointer.
+    const onSelect = vi.fn();
+    render(
+      <Hand
+        cards={[num('blue', 2)]}
+        legalPlacements={{ 'blue-2': ['discard'] }}
+        selectedId={null}
+        onSelect={onSelect}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('blue 2'), { detail: 1 });
+    expect(onSelect).not.toHaveBeenCalled();
+
+    // Enter and Space synthesise a click with no pointer behind it.
+    fireEvent.click(screen.getByLabelText('blue 2'), { detail: 0 });
+    expect(onSelect).toHaveBeenCalledWith('blue-2');
+  });
+
+  it('raises each card the thumb slides over', () => {
+    const onSelect = vi.fn();
+    const { container } = render(
+      <Hand
+        cards={[num('blue', 2), num('blue', 5)]}
+        legalPlacements={{ 'blue-2': ['discard'], 'blue-5': ['discard'] }}
+        selectedId={null}
+        onSelect={onSelect}
+      />,
+    );
+
+    const list = container.querySelector('.hand--fan') as HTMLElement;
+    const at = (id: string) => container.querySelector(`[data-card-id="${id}"]`) as Element;
+
+    // jsdom implements no layout and does not define elementFromPoint at
+    // all, so stand in for the hit test a browser would do.
+    const from = vi.fn<(x: number, y: number) => Element | null>();
+    from.mockReturnValueOnce(at('blue-2')).mockReturnValueOnce(at('blue-5'));
+    stubElementFromPoint(from);
+
+    fireEvent.pointerDown(list, { clientX: 10, clientY: 10, button: 0 });
+    fireEvent.pointerMove(list, { clientX: 40, clientY: 10 });
+
+    expect(onSelect).toHaveBeenNthCalledWith(1, 'blue-2');
+    expect(onSelect).toHaveBeenNthCalledWith(2, 'blue-5');
+  });
+
+  it('does not scrub once the pointer is up', () => {
+    const onSelect = vi.fn();
+    const { container } = render(
+      <Hand
+        cards={[num('blue', 2)]}
+        legalPlacements={{ 'blue-2': ['discard'] }}
+        selectedId={null}
+        onSelect={onSelect}
+      />,
+    );
+
+    const list = container.querySelector('.hand--fan') as HTMLElement;
+    stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
+
+    fireEvent.pointerUp(list, { clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(list, { clientX: 20, clientY: 10 });
+
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('is genuinely inert when the turn is not this phone to act on', () => {
+    const onSelect = vi.fn();
+    render(
+      <Hand
+        cards={[num('blue', 2)]}
+        legalPlacements={{ 'blue-2': ['discard'] }}
+        selectedId={null}
+        onSelect={onSelect}
+        disabled
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('blue 2'));
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+});
+
+describe('fan layout', () => {
+  it('has nothing to place for an empty hand', () => {
+    expect(fanLayout(0)).toEqual([]);
+  });
+
+  it('leaves a single card square to the eye', () => {
+    expect(fanLayout(1)).toEqual([
+      { transform: 'translate(0.00%, 0.00%) rotate(0.00deg)', tx: 0, ty: 0, angle: 0, zIndex: 0 },
+    ]);
+  });
+
+  it('is symmetric about the middle of the hand', () => {
+    const slots = fanLayout(8);
+    for (let i = 0; i < slots.length; i += 1) {
+      expect(slots[i].angle).toBeCloseTo(-slots[slots.length - 1 - i].angle, 10);
+    }
+  });
+
+  it('runs left to right with the middle of the hand highest', () => {
+    const slots = fanLayout(8);
+    for (let i = 1; i < slots.length; i += 1) {
+      expect(slots[i].tx).toBeGreaterThan(slots[i - 1].tx);
+    }
+    // ty grows downward, so the centre cards carry the smallest values.
+    const centre = Math.min(...slots.map((s) => s.ty));
+    expect(slots[3].ty).toBeCloseTo(centre, 10);
+    expect(slots[0].ty).toBeGreaterThan(centre);
+  });
+
+  it('caps the total spread so a big hand never curls into a claw', () => {
+    const slots = fanLayout(20);
+    const spread = slots[slots.length - 1].angle - slots[0].angle;
+    expect(spread).toBeCloseTo(34, 10);
+  });
+
+  it('places a full hand exactly', () => {
+    expect(fanLayout(8).map((s) => s.transform)).toEqual([
+      'translate(-138.24%, 12.75%) rotate(-15.75deg)',
+      'translate(-99.36%, 6.52%) rotate(-11.25deg)',
+      'translate(-59.86%, 2.35%) rotate(-6.75deg)',
+      'translate(-19.99%, 0.26%) rotate(-2.25deg)',
+      'translate(19.99%, 0.26%) rotate(2.25deg)',
+      'translate(59.86%, 2.35%) rotate(6.75deg)',
+      'translate(99.36%, 6.52%) rotate(11.25deg)',
+      'translate(138.24%, 12.75%) rotate(15.75deg)',
+    ]);
+  });
+
+  it('keeps a full hand inside a narrow phone', () => {
+    // The load-bearing sum: the fan spans (tx range + one card). At
+    // --fan-card-w: min(5.5rem, 24vw) that is ~325px of a 360px screen, so
+    // it fits without the container ever needing to clip — which matters,
+    // because nothing in the app sets overflow and a clipped fan would be
+    // sheared rather than scrolled.
+    const slots = fanLayout(8);
+    const spanInCardWidths = (slots[7].tx - slots[0].tx) / 100 + 1;
+    expect(spanInCardWidths).toBeLessThan(3.9);
+    expect(spanInCardWidths * 0.24 * 100).toBeLessThan(92); // vw at 24vw cards
+  });
+
+  it('lifts a card clear of the fan and levels it', () => {
+    const slot = fanLayout(8)[0];
+    expect(slotTransform(slot, 'lifted')).toBe(
+      'translate(-138.24%, -21.00%) rotate(0.00deg) scale(1.06)',
+    );
+  });
+
+  it('sits an unplayable card back without disturbing its tilt', () => {
+    const slot = fanLayout(8)[0];
+    expect(slotTransform(slot, 'muted')).toBe('translate(-138.24%, 16.75%) rotate(-15.75deg)');
+    expect(slotTransform(slot, 'rest')).toBe(slot.transform);
   });
 });
 
@@ -149,6 +355,74 @@ describe('place actions', () => {
     expect(screen.getByRole('button', { name: /play to blue/i }).hasAttribute('disabled')).toBe(
       true,
     );
+  });
+
+  it('treats starting a column as the one irreversible commitment', () => {
+    expect(placementWeight([], num('blue', 7))).toBe('commits');
+    // A wager cannot start a column's scoring on its own.
+    expect(placementWeight([], wager('blue', 1))).toBe('normal');
+    expect(placementWeight([num('blue', 3)], num('blue', 7))).toBe('normal');
+  });
+
+  it('asks twice before starting a column, and discloses the cost', () => {
+    const onPlace = vi.fn();
+    render(
+      <PlaceActions
+        card={num('blue', 7)}
+        targets={['expedition', 'discard']}
+        column={[]}
+        onPlace={onPlace}
+      />,
+    );
+
+    const play = screen.getByRole('button', { name: /play to blue/i });
+    expect(play.textContent).toContain('costs 20');
+
+    fireEvent.click(play);
+    expect(onPlace).not.toHaveBeenCalled();
+
+    const armed = screen.getByRole('button', { name: /tap again to start blue/i });
+    fireEvent.click(armed);
+    expect(onPlace).toHaveBeenCalledWith('expedition');
+  });
+
+  it('plays a card into a started column on the first tap', () => {
+    const onPlace = vi.fn();
+    render(
+      <PlaceActions
+        card={num('blue', 9)}
+        targets={['expedition', 'discard']}
+        column={[num('blue', 3)]}
+        onPlace={onPlace}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /play to blue/i }));
+    expect(onPlace).toHaveBeenCalledWith('expedition');
+  });
+
+  it('disarms itself if the question goes unanswered', () => {
+    vi.useFakeTimers();
+    const onPlace = vi.fn();
+    render(
+      <PlaceActions
+        card={num('blue', 7)}
+        targets={['expedition', 'discard']}
+        column={[]}
+        onPlace={onPlace}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /play to blue/i }));
+    expect(screen.getByRole('button', { name: /tap again/i })).toBeTruthy();
+
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+
+    expect(screen.getByRole('button', { name: /costs 20/i })).toBeTruthy();
+    expect(onPlace).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 
   it('explains why by reading the column back', () => {
@@ -270,5 +544,237 @@ describe('elevation profile', () => {
     expect(profilePoints([num('blue', 2), num('blue', 10)], 'up')).toBe(
       '0.000,1.000 0.000,0.500 1.000,0.500 1.000,0.000',
     );
+  });
+});
+
+describe('flick intent', () => {
+  it('plays on a decisive throw upward', () => {
+    expect(flickIntent(-60, -0.2)).toBe('play');
+    // Short but fast counts too.
+    expect(flickIntent(-30, -0.8)).toBe('play');
+  });
+
+  it('releases downward rather than discarding', () => {
+    // Down is the change-of-mind gesture, so it must not be wired to the
+    // irreversible half of a turn.
+    expect(flickIntent(50, 0.2)).toBe('release');
+    expect(flickIntent(25, 0.7)).toBe('release');
+  });
+
+  it('ignores a nudge', () => {
+    expect(flickIntent(0, 0)).toBe('none');
+    expect(flickIntent(-20, -0.1)).toBe('none');
+    expect(flickIntent(30, 0.1)).toBe('none');
+  });
+
+  it('reports a flick up through the hand, but not a sideways scrub', () => {
+    const onFlick = vi.fn();
+    const { container } = render(
+      <Hand
+        cards={[num('blue', 2)]}
+        legalPlacements={{ 'blue-2': ['expedition'] }}
+        selectedId="blue-2"
+        onSelect={vi.fn()}
+        onFlick={onFlick}
+      />,
+    );
+
+    const list = container.querySelector('.hand--fan') as HTMLElement;
+    stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
+
+    fireEvent.pointerDown(list, { clientX: 100, clientY: 300, button: 0 });
+    fireEvent.pointerUp(list, { clientX: 100, clientY: 220 });
+    expect(onFlick).toHaveBeenCalledWith('play', 'blue-2');
+
+    onFlick.mockClear();
+    fireEvent.pointerDown(list, { clientX: 100, clientY: 300, button: 0 });
+    fireEvent.pointerUp(list, { clientX: 180, clientY: 302 });
+    expect(onFlick).not.toHaveBeenCalled();
+  });
+});
+
+describe('spotting a drawn card', () => {
+  it('names the one card that arrived', () => {
+    expect(drawnCardId([num('blue', 2)], [num('blue', 2), num('red', 9)])).toBe('red-9');
+  });
+
+  it('says nothing when the hand did not change', () => {
+    const hand = [num('blue', 2), num('red', 9)];
+    expect(drawnCardId(hand, hand)).toBeNull();
+  });
+
+  it('refuses to guess when several cards appear at once', () => {
+    // The reconnect case: a fresh full view can differ arbitrarily, and a
+    // diff-driven animator would answer it with a flurry of bogus flights.
+    expect(drawnCardId([], [num('blue', 2), num('red', 9)])).toBeNull();
+  });
+
+  it('is not fooled by a reorder', () => {
+    expect(
+      drawnCardId([num('blue', 2), num('red', 9)], [num('red', 9), num('blue', 2)]),
+    ).toBeNull();
+  });
+
+  it('says nothing when a card left instead of arriving', () => {
+    expect(drawnCardId([num('blue', 2), num('red', 9)], [num('blue', 2)])).toBeNull();
+  });
+});
+
+describe('card flight', () => {
+  const rect = (x: number, y: number, w = 88) => ({ x, y, width: w, height: w * 1.5 });
+
+  it('finishes even where WAAPI does not exist, so the overlay clears', () => {
+    // jsdom has no Element.animate. If onDone did not fire, the clone would
+    // sit on top of the real UI forever.
+    const onDone = vi.fn();
+    render(<CardFlight card={num('blue', 7)} from={rect(0, 0)} to={rect(200, 40, 30)} onDone={onDone} />);
+    return vi.waitFor(() => expect(onDone).toHaveBeenCalled());
+  });
+
+  it('starts at the source and stays out of the way', () => {
+    const { container } = render(
+      <CardFlight card={num('blue', 7)} from={rect(12, 300)} to={rect(200, 40, 30)} onDone={vi.fn()} />,
+    );
+    const el = container.querySelector('.card-flight') as HTMLElement;
+
+    expect(el.style.left).toBe('12px');
+    expect(el.style.top).toBe('300px');
+    // It is a picture of a card; the real one is elsewhere.
+    expect(el.getAttribute('aria-hidden')).toBe('true');
+  });
+});
+
+describe('board strip', () => {
+  const empty = (): Record<Colour, CardModel[]> => ({
+    yellow: [],
+    blue: [],
+    white: [],
+    green: [],
+    red: [],
+  });
+
+  it('reads a column back by its highest number', () => {
+    expect(topOf([])).toBeNull();
+    expect(topOf([num('blue', 3), num('blue', 7)])).toBe(7);
+    // A column of wagers alone has no number to show yet.
+    expect(topOf([wager('blue', 1)])).toBeNull();
+  });
+
+  it('counts wagers as the multiplier they are', () => {
+    expect(wagersIn([])).toBe(0);
+    expect(wagersIn([wager('red', 1), wager('red', 2), num('red', 4)])).toBe(2);
+  });
+
+  it('distinguishes an unstarted column from a started one', () => {
+    const expeditions = empty();
+    expeditions.blue = [num('blue', 7)];
+    const { container } = render(<BoardStrip expeditions={expeditions} score={12} />);
+
+    expect(container.querySelector('[data-zone="blue"]')?.className).toContain('is-started');
+    expect(container.querySelector('[data-zone="red"]')?.className).not.toContain('is-started');
+  });
+
+  it('shows the live score the server sent, and every colour as a target', () => {
+    const { container } = render(<BoardStrip expeditions={empty()} score={-13} />);
+
+    expect(container.querySelector('.board-strip__score')?.textContent).toContain('-13');
+    // Each chip is a flight destination, addressable by colour.
+    for (const colour of ['yellow', 'blue', 'white', 'green', 'red']) {
+      expect(container.querySelector(`[data-zone="${colour}"]`)).toBeTruthy();
+    }
+  });
+});
+
+describe('tray', () => {
+  it('remounts its contents on a mode change so the enter animation runs', () => {
+    const { container, rerender } = render(
+      <Tray mode="board">
+        <p>board</p>
+      </Tray>,
+    );
+    const first = container.querySelector('.tray__inner');
+
+    rerender(
+      <Tray mode="place">
+        <p>place</p>
+      </Tray>,
+    );
+
+    expect(container.querySelector('.tray')?.className).toContain('tray--place');
+    expect(container.querySelector('.tray__inner')).not.toBe(first);
+  });
+});
+
+describe('haptics', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    resetVibrateThrottle();
+  });
+
+  it('is silent where the device has no motor', () => {
+    vi.stubGlobal('navigator', {});
+    expect(canVibrate()).toBe(false);
+    expect(() => vibrateTick()).not.toThrow();
+  });
+
+  it('throttles scrub ticks so sliding a thumb cannot machine-gun the motor', () => {
+    const vibrate = vi.fn();
+    vi.stubGlobal('navigator', { vibrate });
+
+    vibrateTick();
+    vibrateTick();
+    vibrateTick();
+
+    expect(vibrate).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not throttle the deliberate one-off haptics', () => {
+    const vibrate = vi.fn();
+    vi.stubGlobal('navigator', { vibrate });
+
+    vibrateCommit();
+    vibrateReject();
+
+    expect(vibrate).toHaveBeenNthCalledWith(1, [12, 40, 18]);
+    expect(vibrate).toHaveBeenNthCalledWith(2, [30, 60, 30]);
+  });
+
+  it('survives an engine that exposes vibrate and then refuses it', () => {
+    vi.stubGlobal('navigator', {
+      vibrate: () => {
+        throw new Error('needs a user gesture');
+      },
+    });
+    expect(() => vibrateCommit()).not.toThrow();
+  });
+});
+
+describe('motion', () => {
+  it('resolves instead of throwing where WAAPI is missing', async () => {
+    // jsdom has no Element.animate. Every flight in the app awaits this, so
+    // an unguarded call would hang the component, not just skip the motion.
+    const el = document.createElement('div');
+    await expect(animate(el, [{ opacity: 0 }], { duration: 200 })).resolves.toBeUndefined();
+  });
+
+  it('resolves when the animation is cancelled mid-flight', async () => {
+    // The real case: the server's next `state` unmounts the card while it flies.
+    const el = document.createElement('div');
+    (el as unknown as { animate: unknown }).animate = () => ({
+      finished: Promise.reject(new Error('cancelled')),
+    });
+    await expect(animate(el, [{ opacity: 0 }], { duration: 200 })).resolves.toBeUndefined();
+  });
+
+  it('collapses the duration under reduced motion', async () => {
+    const spy = vi.fn(() => ({ finished: Promise.resolve() }));
+    const el = document.createElement('div');
+    (el as unknown as { animate: unknown }).animate = spy;
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+
+    await animate(el, [{ opacity: 0 }], { duration: FLIGHT_MS });
+
+    expect(spy).toHaveBeenCalledWith([{ opacity: 0 }], { duration: 0 });
+    vi.unstubAllGlobals();
   });
 });

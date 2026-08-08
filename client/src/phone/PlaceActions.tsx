@@ -4,8 +4,8 @@
 // Contains no rules logic: which targets are offered comes from the server's
 // legalPlacements. The hint text only reads back the column's current state.
 
+import { useEffect, useState } from 'react';
 import { Card as CardModel, PlaceTarget } from '@shared/types';
-import { Card } from '../shared/Card';
 
 export interface PlaceActionsProps {
   card: CardModel;
@@ -32,27 +32,71 @@ export function expeditionHint(column: CardModel[], card: CardModel): string {
   return `${card.colour} is at ${numbers[numbers.length - 1].value as number}`;
 }
 
+/**
+ * Whether a placement is the one move in Lost Cities you cannot walk back:
+ * starting a column commits to -20 before a single point is scored.
+ *
+ * Like expeditionHint, this *reports* — it does not decide legality, which
+ * stays entirely with the server's legalPlacements.
+ */
+export function placementWeight(column: CardModel[], card: CardModel): 'commits' | 'normal' {
+  return column.length === 0 && card.value !== 'wager' ? 'commits' : 'normal';
+}
+
+/** Long enough to read the second label, short enough not to lie in wait. */
+const DISARM_MS = 3000;
+
 export function PlaceActions({ card, targets, column, busy, onPlace }: PlaceActionsProps) {
   const canPlay = targets.includes('expedition');
+  const weight = placementWeight(column, card);
+  const [armed, setArmed] = useState(false);
+
+  // Picking up a different card is a fresh decision.
+  useEffect(() => setArmed(false), [card.id]);
+
+  useEffect(() => {
+    if (!armed) return;
+    const timer = setTimeout(() => setArmed(false), DISARM_MS);
+    return () => clearTimeout(timer);
+  }, [armed]);
+
+  function handlePlay(): void {
+    if (weight === 'commits' && !armed) {
+      setArmed(true);
+      return;
+    }
+    onPlace('expedition');
+  }
+
+  const playLabel = armed
+    ? `Tap again to start ${card.colour}`
+    : weight === 'commits'
+      ? `Play to ${card.colour} — starts it, costs 20`
+      : `Play to ${card.colour}`;
 
   return (
     <div className="place-actions">
-      <div className="place-actions__preview">
-        <Card card={card} size="lg" />
-      </div>
+      {/*
+        No preview card: the selected card is already lifted out of the fan
+        below, and a second copy would push the tray past the height that
+        keeps selection reflow-free.
 
+        data-zone marks each button as a flight destination.
+      */}
       <div className="place-actions__buttons">
         <button
           type="button"
-          className="action action--play"
+          className={`action action--play${armed ? ' is-armed' : ''}`}
+          data-zone={card.colour}
           disabled={!canPlay || busy}
-          onClick={() => onPlace('expedition')}
+          onClick={handlePlay}
         >
-          Play to {card.colour}
+          {playLabel}
         </button>
         <button
           type="button"
           className="action action--discard"
+          data-zone="discard"
           disabled={!targets.includes('discard') || busy}
           onClick={() => onPlace('discard')}
         >

@@ -22,6 +22,11 @@
   line-height: 1;
   box-shadow: 0 1px 0 rgb(31 29 26 / 0.25);
   transition: transform var(--motion), box-shadow var(--motion);
+  /* A card is dragged and flicked; never let it turn into a text selection
+     or fire iOS's press-and-hold callout mid-gesture. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .card--sm {
@@ -53,6 +58,21 @@
   opacity: 0.75;
 }
 
+/* The corner index exists only for the fanned hand, where neighbours bury
+   the centred numeral on every card but the last. Everywhere else the big
+   numeral is the whole point, and a second one would just be noise. */
+.card__index {
+  display: none;
+  position: absolute;
+  top: 0.2rem;
+  left: 0.32rem;
+  font-family: var(--font-numeral);
+  font-size: calc(var(--card-width) * 0.3);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
 .card:not(:disabled) {
   cursor: pointer;
 }
@@ -61,10 +81,18 @@
   transform: translateY(1px);
 }
 
+/* Selection and focus must not look alike, and they used to: is-selected
+   owned the outline, so a keyboard user could not tell which card the ring
+   meant. Selection is now lift + shadow + an inset rule (the lift itself
+   lives on the wrapper); the outline belongs to focus alone.
+   Only Hand passes `selected`, so this cannot reach the table. */
 .card.is-selected {
+  box-shadow: 0 6px 14px rgb(31 29 26 / 0.35), inset 0 0 0 2px var(--paper);
+}
+
+.card:focus-visible {
   outline: 3px solid var(--ink);
   outline-offset: 2px;
-  transform: translateY(-0.4rem);
 }
 
 .card.is-dimmed {
@@ -377,8 +405,26 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  /* svh, not vh: on iOS the URL bar makes vh taller than the visible area,
+     and the hand is bottom-anchored so it is what gets pushed off. */
+  min-height: 100svh;
   gap: 0.75rem;
-  padding: 0.75rem;
+  /* index.html sets viewport-fit=cover, so the insets are live. The home
+     indicator sits exactly where the hand is gripped. */
+  padding: calc(0.75rem + env(safe-area-inset-top))
+    calc(0.75rem + env(safe-area-inset-right))
+    calc(0.75rem + env(safe-area-inset-bottom))
+    calc(0.75rem + env(safe-area-inset-left));
+  /* Kills the 300ms tap delay. Never `none` here — that would take iOS's
+     swipe-back with it; the lifted card scopes that to itself. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone--waiting {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
 }
 
 .banner {
@@ -392,11 +438,24 @@
   font-family: var(--font-numeral);
   font-size: 1.3rem;
   font-weight: 600;
+  transition: background-color var(--motion), color var(--motion);
 }
 
 .banner.is-active {
   background: var(--ink);
   color: var(--paper);
+}
+
+/* The referent is the opponent's move that just arrived. */
+@keyframes banner-tick {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+.banner__message.is-cue {
+  animation: banner-tick 200ms cubic-bezier(0.2, 0.7, 0.3, 1);
 }
 
 .banner.is-active .label {
@@ -419,13 +478,187 @@
   margin: 0;
 }
 
-.hand {
+/* ---------- a card in transit ---------- */
+
+/* Fixed, above everything, and inert: it is a picture of a card, and the
+   real one is either already gone from the hand or still sitting in it. */
+.card-flight {
+  position: fixed;
+  z-index: 200;
+  pointer-events: none;
+  will-change: transform;
+}
+
+/* ---------- the tray ---------- */
+
+/* The min-height is the whole point: board and place both fit inside it, so
+   picking up a card swaps the contents with zero reflow. Draw is a phase
+   change rather than a same-turn swap, and is allowed to grow. */
+.tray {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+  flex-direction: column;
   justify-content: center;
-  margin-top: auto;
-  padding-top: 0.5rem;
+  min-height: 5.25rem;
+}
+
+@keyframes tray-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.tray__inner {
+  animation: tray-enter 160ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+.board-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.board-strip__chips {
+  display: flex;
+  gap: 0.4rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.board-strip__score {
+  font-family: var(--font-numeral);
+  font-size: 1.9rem;
+  font-weight: 700;
+  line-height: 1;
+  margin: 0;
+}
+
+.chip {
+  display: flex;
+  align-items: baseline;
+  gap: 0.15rem;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  font-family: var(--font-numeral);
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0.5;
+  transition: opacity var(--motion), border-color var(--motion), transform var(--motion-fast);
+}
+
+.chip.is-started {
+  border-color: var(--colour);
+  color: var(--colour);
+  opacity: 1;
+}
+
+.chip__mark {
+  font-size: 0.7rem;
+}
+
+.chip__value {
+  font-size: 1.1rem;
+}
+
+.chip__wagers {
+  font-size: 0.65rem;
+  opacity: 0.8;
+}
+
+/* The referent is a card that just landed here. */
+@keyframes chip-land {
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+.chip.is-flashing {
+  animation: chip-land 180ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- the fanned hand ---------- */
+
+/* Every slot occupies the same grid cell and is placed by its own transform,
+   so the container auto-sizes to one card and the fan spills symmetrically
+   out of it. Nothing above this may set overflow — a fan reaches about 1.4
+   card widths past its box on each side and would be sheared off. */
+.hand--fan {
+  --fan-card-w: min(5.5rem, 24vw);
+  display: grid;
+  justify-items: center;
+  align-items: end;
+  list-style: none;
+  margin: auto 0 0;
+  padding: 2.5rem 0 0.5rem;
+}
+
+/* Landscape on a short screen: height, not width, is what runs out. */
+@media (orientation: landscape) and (max-height: 480px) {
+  .hand--fan {
+    --fan-card-w: min(5.5rem, 24vw, 26vh);
+  }
+}
+
+/* 0,2,0 — beats .card--lg without !important. */
+.hand--fan .card {
+  --card-width: var(--fan-card-w);
+}
+
+.hand--fan .card__index {
+  display: block;
+}
+
+/* In a fan the big centred numeral is buried, so the corner index carries
+   the value and the colour mark moves out from under it. */
+.hand--fan .card__mark {
+  top: auto;
+  bottom: 0.25rem;
+}
+
+.hand__slot {
+  grid-area: 1 / 1;
+  transition: transform var(--motion), filter var(--motion), opacity var(--motion);
+}
+
+/* Legality reads as position, not as a wash: a muted card sits back in the
+   hand (that offset is composed into the inline transform, since an inline
+   transform beats any rule here). Opacity stays at 1 deliberately — a
+   translucent card in a 60% overlap lets its neighbour bleed through and
+   the fan turns to mush. */
+.hand__slot.is-muted .card {
+  filter: grayscale(0.8);
+}
+
+/* Lifted is the one state that must clear its neighbours' shadows. */
+.hand__slot.is-lifted .card {
+  box-shadow: 0 6px 14px rgb(31 29 26 / 0.35);
+}
+
+/* Scoped to the raised card and nowhere else. Blanketing .phone with this
+   would hand every vertical gesture to us — including iOS's swipe-back. */
+.hand__slot.is-lifted {
+  touch-action: none;
+}
+
+.hand--fan.is-muted {
+  opacity: 0.45;
+  filter: grayscale(0.5);
+  pointer-events: none;
 }
 
 .place-actions {
@@ -461,6 +694,11 @@
   text-decoration: none;
   text-align: center;
   cursor: pointer;
+  transition: transform 90ms ease-out, opacity var(--motion);
+}
+
+.action:not(:disabled):active {
+  transform: translateY(1px);
 }
 
 .action--play {
@@ -468,8 +706,29 @@
   color: var(--paper);
 }
 
+/* Discard is the semi-destructive half of a turn: legible as an equal
+   target, but never wearing the filled treatment that means "play". */
+.action--discard {
+  background: transparent;
+  border-color: var(--rule);
+  color: var(--ink);
+}
+
+.action--discard:not(:disabled):hover {
+  border-color: var(--ink);
+}
+
 .action.is-selected {
   background: var(--ink);
+  color: var(--paper);
+}
+
+/* Armed: the button has asked a question and is waiting for the answer.
+   Inverted against --warn so it cannot be mistaken for the resting state
+   that was just tapped. */
+.action.is-armed {
+  background: var(--warn);
+  border-color: var(--warn);
   color: var(--paper);
 }
 
