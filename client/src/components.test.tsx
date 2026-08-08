@@ -8,6 +8,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Card as CardModel, Colour, PublicPlayerView } from '@shared/types';
 import { Card } from './shared/Card';
 import { Column } from './table/Column';
+import { profilePoints } from './table/ElevationProfile';
 import { DiscardRow, deckUrgency } from './table/DiscardRow';
 import { PlayerBreakdown } from './table/RoundEnd';
 import { Hand, sortHand } from './phone/Hand';
@@ -242,5 +243,32 @@ describe('round-end breakdown', () => {
     );
     expect(screen.getByText('× 3 + 20')).toBeTruthy();
     expect(screen.getAllByText('41')).toHaveLength(2); // column score and round total
+  });
+});
+
+describe('elevation profile', () => {
+  it('is not drawn for a stub of one card', () => {
+    const { container } = render(
+      <Column colour="blue" cards={[num('blue', 4)]} direction="down" />,
+    );
+    expect(container.querySelector('.elevation')).toBeNull();
+  });
+
+  it('rises with the values played', () => {
+    // 2 is the lowest number, 10 the highest, so displacement runs 0 -> 1.
+    const points = profilePoints([num('blue', 2), num('blue', 10)], 'down');
+    expect(points).toBe('0.000,0.000 0.000,0.500 1.000,0.500 1.000,1.000');
+  });
+
+  it('puts wagers on the baseline', () => {
+    expect(profilePoints([wager('red', 1), wager('red', 2)], 'down')).toBe(
+      '0.000,0.000 0.000,0.500 0.000,0.500 0.000,1.000',
+    );
+  });
+
+  it('runs the other way for an upward column', () => {
+    expect(profilePoints([num('blue', 2), num('blue', 10)], 'up')).toBe(
+      '0.000,1.000 0.000,0.500 1.000,0.500 1.000,0.000',
+    );
   });
 });

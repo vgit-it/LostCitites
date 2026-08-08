@@ -3,6 +3,7 @@
 
 import { Card as CardModel, Colour } from '@shared/types';
 import { Card, CardSlot } from '../shared/Card';
+import { ElevationProfile } from './ElevationProfile';
 
 export interface ColumnProps {
   colour: Colour;
@@ -26,6 +27,7 @@ export function Column({ colour, cards, direction }: ColumnProps) {
 
   return (
     <div className={`column column--${direction}`} aria-label={`${colour} expedition`}>
+      <ElevationProfile cards={cards} colour={colour} direction={direction} />
       {ordered.map((card) => (
         <div className="column__card" key={card.id}>
           <Card card={card} size="md" />
