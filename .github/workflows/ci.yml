@@ -1,0 +1,43 @@
+# The three checks that matter here, as CLAUDE.md puts it: there is no lint
+# script, so typecheck and vitest are the gate. `build` is kept separate from
+# `typecheck` even though it runs tsc itself, because noUnusedLocals means a
+# stale import can fail the build while vitest stays green.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to a PR makes the in-flight run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Unit and integration tests
+        run: npm test
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      # Cheap, and it is the one check that exercises the rules layer over a
+      # whole 3-round match rather than a single scoring case.
+      - name: Headless match
+        run: npm run headless
