@@ -95,6 +95,10 @@ jobs:
           mkdir -p ".gh-pages/${{ steps.target.outputs.dir }}"
           rsync -a --checksum --delete --exclude 'pr-*' --exclude '.git' \
             dist/client/ ".gh-pages/${{ steps.target.outputs.dir }}/"
+          # Tells Pages not to run the output through Jekyll, which would
+          # drop any file or directory beginning with an underscore. After
+          # the rsync, which would --delete it: it is not in dist/client.
+          touch .gh-pages/.nojekyll
 
       - name: Refuse to publish a page whose assets are not there
         env:
@@ -129,9 +133,6 @@ jobs:
             exit 1
           fi
           echo "index.html and the published assets agree."
-          # Tells Pages not to run the output through Jekyll, which would
-          # drop any file or directory beginning with an underscore.
-          touch .gh-pages/.nojekyll
 
       - name: Publish
         run: |
