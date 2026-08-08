@@ -4,9 +4,10 @@
 // Holds zero rules logic: every legality decision arrives precomputed in
 // the view. This component only routes taps to intents.
 
-import { useEffect, useState } from 'react';
-import { PlaceTarget, PlayerView, Seat } from '@shared/types';
-import { vibrateTurnStart } from '../platform/vibrate';
+import { useEffect, useRef, useState } from 'react';
+import { Card as CardModel, DrawSource, PlaceTarget, PlayerView, Seat } from '@shared/types';
+import { vibrateCommit, vibrateDraw, vibrateReject, vibrateTurnStart } from '../platform/vibrate';
+import { DRAW_FLIGHT_MS } from '../platform/motion';
 import { useWakeLock } from '../platform/wakeLock';
 import {
   useClientView,
@@ -15,11 +16,33 @@ import {
   useSessionError,
 } from '../session/useSession';
 import { BoardStrip } from './BoardStrip';
+import { CardFlight, Rect } from './CardFlight';
 import { DrawTargets } from './DrawTargets';
-import { Hand } from './Hand';
+import { Hand, drawnCardId } from './Hand';
 import { PlaceActions } from './PlaceActions';
 import { JoinScreen } from './JoinScreen';
 import { Tray, TrayMode } from './Tray';
+
+/**
+ * A live element's rect, or null when there is nothing to measure.
+ *
+ * The zero-width guard doubles as the reason flights simply do not happen
+ * under test: jsdom implements no layout, so every rect comes back zeroed.
+ */
+function rectOf(selector: string): Rect | null {
+  const el = document.querySelector(selector);
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  return r.width > 0 ? { x: r.left, y: r.top, width: r.width, height: r.height } : null;
+}
+
+interface Flight {
+  card: CardModel;
+  from: Rect;
+  to: Rect;
+  reversed?: boolean;
+  durationMs?: number;
+}
 
 export function Phone() {
   const session = useSession();
@@ -31,9 +54,21 @@ export function Phone() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** Set on send, cleared by the next view — stops double taps. */
   const [busy, setBusy] = useState(false);
+  /**
+   * Owned here and deliberately *not* cleared by the [view] effect: a flight
+   * outlives the state change that caused it, and ends on its own promise.
+   */
+  const [flight, setFlight] = useState<Flight | null>(null);
+  /** The chip that a card has just landed on, for one pulse. */
+  const [landed, setLanded] = useState<CardModel['colour'] | null>(null);
 
   const player = view?.viewer === 'player' ? view : null;
   const myTurn = player ? player.turn === player.seat : false;
+
+  /** Last hand seen, so an arrival can be spotted without deriving state. */
+  const prevHand = useRef<CardModel[]>([]);
+  /** Where the last draw was tapped, so its flight has a source. */
+  const drawFrom = useRef<Rect | null>(null);
 
   // Buzz when the turn flips to this phone. The screen is often off.
   useEffect(() => {
@@ -48,6 +83,33 @@ export function Phone() {
     setBusy(false);
     setSelectedId((id) => (id && player?.hand.some((c) => c.id === id) ? id : null));
   }, [view]);
+
+  // A card arriving in this hand. Driven by a diff rather than an event
+  // because we know it is ours and drawnCardId refuses anything that is not
+  // a clean single arrival — so a reconnect's fresh view cannot trigger it.
+  useEffect(() => {
+    if (!player) return;
+    const arrived = drawnCardId(prevHand.current, player.hand);
+    prevHand.current = player.hand;
+
+    if (!arrived) return;
+    vibrateDraw();
+
+    const card = player.hand.find((c) => c.id === arrived);
+    const to = rectOf(`[data-card-id="${arrived}"]`);
+    const from = drawFrom.current;
+    drawFrom.current = null;
+    if (card && from && to) setFlight({ card, from, to, durationMs: DRAW_FLIGHT_MS });
+  }, [view]);
+
+  // The server refused the move: bring the card home and say so.
+  useEffect(() => {
+    if (!error) return;
+    vibrateReject();
+    // from/to stay as they were — CardFlight is positioned at `from` and
+    // plays its keyframes backwards, so the card returns to the hand.
+    setFlight((f) => (f && !f.reversed ? { ...f, reversed: true } : f));
+  }, [error]);
 
   if (!session.getCode()) {
     return <JoinScreen onJoin={(code, seat, name) => session.joinPlayer(code, seat, name)} />;
@@ -67,8 +129,27 @@ export function Phone() {
   }
 
   const place = (target: PlaceTarget['kind']) => {
-    if (!selectedId) return;
+    const card = player?.hand.find((c) => c.id === selectedId);
+    if (!selectedId || !card) return;
+
+    // Measure before sending: on a LAN the server's next state can land
+    // before the next frame, and by then the card is out of the hand.
+    const from = rectOf(`[data-card-id="${selectedId}"]`);
+    const to = rectOf(`[data-zone="${target === 'discard' ? 'discard' : card.colour}"]`);
+    if (from && to) {
+      setFlight({ card, from, to });
+      if (target === 'expedition') setLanded(card.colour);
+    }
+
+    vibrateCommit();
     send(() => session.place(selectedId, target));
+  };
+
+  const draw = (source: DrawSource) => {
+    drawFrom.current = rectOf(
+      source.kind === 'deck' ? '.draw-deck' : `[data-draw="${source.colour}"]`,
+    );
+    send(() => session.draw(source));
   };
 
   const me = player.players[player.seat];
@@ -100,7 +181,7 @@ export function Phone() {
                 legalDrawSources={player.legalDrawSources}
                 blockedDrawCardId={player.blockedDrawCardId}
                 busy={busy}
-                onDraw={(source) => send(() => session.draw(source))}
+                onDraw={draw}
               />
             ) : trayMode === 'place' && selected ? (
               <PlaceActions
@@ -111,7 +192,11 @@ export function Phone() {
                 onPlace={place}
               />
             ) : (
-              <BoardStrip expeditions={me.expeditions} score={me.currentRoundScore} />
+              <BoardStrip
+                expeditions={me.expeditions}
+                score={me.currentRoundScore}
+                flashColour={landed}
+              />
             )}
           </Tray>
 
@@ -133,6 +218,23 @@ export function Phone() {
 
       {(player.stage === 'roundEnd' || player.stage === 'matchEnd') && (
         <RoundGate view={player} onReady={() => session.readyNextRound()} />
+      )}
+
+      {flight && (
+        <CardFlight
+          // Keyed so a reversal remounts and replays rather than being
+          // ignored by an effect that has already run.
+          key={`${flight.card.id}-${flight.reversed ? 'back' : 'out'}`}
+          card={flight.card}
+          from={flight.from}
+          to={flight.to}
+          reversed={flight.reversed}
+          durationMs={flight.durationMs}
+          onDone={() => {
+            setFlight(null);
+            setLanded(null);
+          }}
+        />
       )}
     </div>
   );

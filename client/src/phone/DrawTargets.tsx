@@ -51,14 +51,17 @@ export function DrawTargets({
 
           const blocked = top.id === blockedDrawCardId;
           return (
+            // The wrapper carries the flight source id, keeping CardProps
+            // closed the same way the hand's slots do.
+            <span key={colour} data-draw={colour} className="draw-targets__pile">
             <Card
-              key={colour}
               card={top}
               size="lg"
               dimmed={busy || !legalColours.has(colour)}
               title={blocked ? 'You just discarded this' : undefined}
               onClick={() => onDraw({ kind: 'discard', colour })}
             />
+            </span>
           );
         })}
       </div>

@@ -466,6 +466,17 @@
   margin: 0;
 }
 
+/* ---------- a card in transit ---------- */
+
+/* Fixed, above everything, and inert: it is a picture of a card, and the
+   real one is either already gone from the hand or still sitting in it. */
+.card-flight {
+  position: fixed;
+  z-index: 200;
+  pointer-events: none;
+  will-change: transform;
+}
+
 /* ---------- the tray ---------- */
 
 /* The min-height is the whole point: board and place both fit inside it, so

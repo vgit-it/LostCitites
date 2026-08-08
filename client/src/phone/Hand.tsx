@@ -98,6 +98,23 @@ function fanTransform(tx: number, ty: number, angle: number): string {
   return `translate(${tx.toFixed(2)}%, ${ty.toFixed(2)}%) rotate(${angle.toFixed(2)}deg)`;
 }
 
+/**
+ * The one card in `next` that was not in `prev`, or null if this is not a
+ * clean single arrival.
+ *
+ * Returning null on anything else is the point, not caution. A reconnect
+ * delivers a fresh full view that may differ from the last one arbitrarily,
+ * and a diff-driven animator would answer that with a flurry of bogus
+ * flights. Requiring exactly one new card makes that impossible by
+ * construction — which is also why opponent cues use events instead of
+ * diffing, since their moves have no such single-card guarantee.
+ */
+export function drawnCardId(prev: CardModel[], next: CardModel[]): string | null {
+  const before = new Set(prev.map((c) => c.id));
+  const arrived = next.filter((c) => !before.has(c.id));
+  return arrived.length === 1 ? arrived[0].id : null;
+}
+
 /** The wrapper transform for a slot in a given state. Pure. */
 export function slotTransform(slot: FanSlot, state: SlotState): string {
   switch (state) {

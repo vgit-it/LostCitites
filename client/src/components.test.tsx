@@ -11,7 +11,8 @@ import { Column } from './table/Column';
 import { profilePoints } from './table/ElevationProfile';
 import { DiscardRow, deckUrgency } from './table/DiscardRow';
 import { PlayerBreakdown } from './table/RoundEnd';
-import { Hand, fanLayout, slotTransform, sortHand } from './phone/Hand';
+import { Hand, drawnCardId, fanLayout, slotTransform, sortHand } from './phone/Hand';
+import { CardFlight } from './phone/CardFlight';
 import { DrawTargets } from './phone/DrawTargets';
 import { PlaceActions, expeditionHint } from './phone/PlaceActions';
 import { BoardStrip, topOf, wagersIn } from './phone/BoardStrip';
@@ -475,6 +476,57 @@ describe('elevation profile', () => {
     expect(profilePoints([num('blue', 2), num('blue', 10)], 'up')).toBe(
       '0.000,1.000 0.000,0.500 1.000,0.500 1.000,0.000',
     );
+  });
+});
+
+describe('spotting a drawn card', () => {
+  it('names the one card that arrived', () => {
+    expect(drawnCardId([num('blue', 2)], [num('blue', 2), num('red', 9)])).toBe('red-9');
+  });
+
+  it('says nothing when the hand did not change', () => {
+    const hand = [num('blue', 2), num('red', 9)];
+    expect(drawnCardId(hand, hand)).toBeNull();
+  });
+
+  it('refuses to guess when several cards appear at once', () => {
+    // The reconnect case: a fresh full view can differ arbitrarily, and a
+    // diff-driven animator would answer it with a flurry of bogus flights.
+    expect(drawnCardId([], [num('blue', 2), num('red', 9)])).toBeNull();
+  });
+
+  it('is not fooled by a reorder', () => {
+    expect(
+      drawnCardId([num('blue', 2), num('red', 9)], [num('red', 9), num('blue', 2)]),
+    ).toBeNull();
+  });
+
+  it('says nothing when a card left instead of arriving', () => {
+    expect(drawnCardId([num('blue', 2), num('red', 9)], [num('blue', 2)])).toBeNull();
+  });
+});
+
+describe('card flight', () => {
+  const rect = (x: number, y: number, w = 88) => ({ x, y, width: w, height: w * 1.5 });
+
+  it('finishes even where WAAPI does not exist, so the overlay clears', () => {
+    // jsdom has no Element.animate. If onDone did not fire, the clone would
+    // sit on top of the real UI forever.
+    const onDone = vi.fn();
+    render(<CardFlight card={num('blue', 7)} from={rect(0, 0)} to={rect(200, 40, 30)} onDone={onDone} />);
+    return vi.waitFor(() => expect(onDone).toHaveBeenCalled());
+  });
+
+  it('starts at the source and stays out of the way', () => {
+    const { container } = render(
+      <CardFlight card={num('blue', 7)} from={rect(12, 300)} to={rect(200, 40, 30)} onDone={vi.fn()} />,
+    );
+    const el = container.querySelector('.card-flight') as HTMLElement;
+
+    expect(el.style.left).toBe('12px');
+    expect(el.style.top).toBe('300px');
+    // It is a picture of a card; the real one is elsewhere.
+    expect(el.getAttribute('aria-hidden')).toBe('true');
   });
 });
 
