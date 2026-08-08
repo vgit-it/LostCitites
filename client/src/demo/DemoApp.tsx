@@ -7,6 +7,7 @@
 // ============================================================
 
 import { DemoIndex } from './DemoIndex';
+import { DemoPanes } from './DemoPanes';
 import { DemoRoute } from './DemoRoute';
 import { DemoParams } from './route';
 import './demo.css';
@@ -15,5 +16,6 @@ export default function DemoApp({ params }: { params: DemoParams }) {
   if (params.view === 'table' || params.view === 'play') {
     return <DemoRoute params={params} />;
   }
+  if (params.view === 'panes') return <DemoPanes params={params} />;
   return <DemoIndex params={params} />;
 }

@@ -1,6 +1,21 @@
-/* Chrome around the demo. Nothing here styles the game itself — Table and
-   Phone bring their own, and a demo that restyled them would stop being
-   evidence about the real interface. */
+/* Chrome around the demo.
+ *
+ * Nothing here styles the game itself — Table and Phone bring their own, and
+ * a demo that restyled them would stop being evidence about the real
+ * interface. This is only the frame around them, and it stays inside the
+ * Field Survey palette (BUILD_SPEC §9): paper, ink and rule, with the five
+ * expedition colours left alone as the game's entire chromatic budget. The
+ * one accent used here is --sand, for the selected chip. */
+
+.demo-index,
+.demo-panes {
+  min-height: 100%;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+}
+
+/* ---- the way in ---- */
 
 .demo-index {
   max-width: 44rem;
@@ -13,7 +28,8 @@
 
 .demo-index__head h1 {
   margin: 0 0 0.5rem;
-  font-size: 1.75rem;
+  font-size: 1.6rem;
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 
@@ -34,30 +50,140 @@
 }
 
 .demo-index__seed {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   padding: 0.4rem 0.7rem;
-  border-radius: var(--radius-sm, 0.4rem);
-  background: var(--surface-2, rgba(255, 255, 255, 0.06));
+  border-radius: var(--radius);
+  background: var(--paper-dim);
+  border: 1px solid var(--rule);
 }
+
+/* ---- controls ---- */
 
 .demo-chip {
   font: inherit;
-  font-size: 0.9rem;
-  color: inherit;
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  color: var(--ink);
   padding: 0.4rem 0.8rem;
-  border: 1px solid var(--line, rgba(255, 255, 255, 0.16));
-  border-radius: 999px;
-  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper);
   cursor: pointer;
-  transition: background-color var(--motion-fast), border-color var(--motion-fast);
+  transition:
+    background-color var(--motion-fast),
+    border-color var(--motion-fast);
 }
 
-.demo-chip:hover {
-  background: var(--surface-2, rgba(255, 255, 255, 0.06));
+.demo-chip:hover:not(:disabled) {
+  background: var(--paper-dim);
 }
 
 .demo-chip.is-on {
-  background: var(--accent, #c9a227);
-  border-color: var(--accent, #c9a227);
-  color: var(--ink-inverse, #14110c);
+  background: var(--sand);
+  border-color: var(--sand);
+  color: var(--paper);
+}
+
+.demo-chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ---- the panes view ---- */
+
+.demo-panes {
+  display: flex;
+  flex-direction: column;
+}
+
+.demo-chrome {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.85rem 1rem;
+  background: var(--paper-dim);
+  border-bottom: 1px solid var(--rule);
+}
+
+.demo-chrome__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.demo-chrome__scenarios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.demo-chrome__home {
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding-right: 0.6rem;
+  border-right: 1px solid var(--rule);
+  margin-right: 0.25rem;
+}
+
+.demo-chrome__blurb {
+  margin: 0;
+}
+
+.demo-chrome__row code,
+.demo-index__seed {
+  font-family: var(--font-ui);
+}
+
+/* The horizontal scroll lives here, on the stage, and never on the page
+   body — a pane is a fixed device size and must not be squeezed to fit. */
+.demo-panes__stage {
+  flex: 1;
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+  padding: 1.25rem;
+  overflow-x: auto;
+  background: var(--rule);
+}
+
+.demo-pane {
+  margin: 0;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.demo-pane__label {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  opacity: 0.9;
+}
+
+.demo-pane__size {
+  opacity: 0.7;
+}
+
+/* The device bezel. The iframe inside is a real viewport, which is the whole
+   reason these are frames and not divs: media queries, svh and safe-area
+   insets resolve against it rather than against the desktop window. */
+.demo-pane__screen {
+  border-radius: 0.75rem;
+  overflow: hidden;
+  border: 1px solid var(--ink);
+  box-shadow: 0 1rem 2.5rem rgba(31, 29, 26, 0.35);
+  background: var(--paper);
+}
+
+.demo-pane__frame {
+  display: block;
+  border: 0;
 }

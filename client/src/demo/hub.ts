@@ -17,6 +17,7 @@ import { InMemoryRoomRegistry } from '../../../server/registry';
 import { mulberry32 } from '../../../server/rng';
 import { RoomBroadcaster } from '../../../server/roomBroadcaster';
 import { handleConnection } from '../../../server/router';
+import type { Connection } from '../../../server/transport';
 import { SocketClient } from '../session/socket';
 import { createLoopback } from './loopback';
 
@@ -30,6 +31,14 @@ import { createLoopback } from './loopback';
  */
 export const DEMO_CODE = '777';
 
+/**
+ * Names for the two seats, used by both the bot and a person taking over
+ * from one. Shared so the two agree: a name is server-side state, so naming
+ * whoever is holding a phone "You" makes the *other* phone's banner read
+ * "You is placing".
+ */
+export const SEAT_NAMES = ['Ada', 'Bo'] as const;
+
 export interface DemoHub {
   readonly code: string;
   /**
@@ -37,6 +46,11 @@ export interface DemoHub {
    * `sync` is for the scenario fast-forward — see LoopbackOptions.
    */
   attach(options?: { sync?: boolean }): SocketClient;
+  /**
+   * Attach a Connection built elsewhere — the iframe bridge. The server
+   * cannot tell the difference, which is the entire point of the seam.
+   */
+  adopt(connection: Connection): void;
   /** Every socket ever attached, for the "stop the server" control. */
   closeAll(): void;
 }
@@ -58,6 +72,10 @@ export function createHub(seed: number): DemoHub {
       handleConnection(connection, registry);
       attached.add(socket);
       return socket;
+    },
+
+    adopt(connection) {
+      handleConnection(connection, registry);
     },
 
     closeAll() {

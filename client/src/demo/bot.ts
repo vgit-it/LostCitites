@@ -16,7 +16,7 @@
 import { ClientMessage, PlayerView, Seat, ServerMessage } from '@shared/types';
 import { Rng } from '../../../server/rng';
 import { SocketClient } from '../session/socket';
-import { DEMO_CODE } from './hub';
+import { DEMO_CODE, SEAT_NAMES } from './hub';
 
 /** How long a watching human gets between the bot's half-turns. */
 export const BOT_THINK_MS = 700;
@@ -63,7 +63,7 @@ export function createBot(
     view = message.view;
   });
 
-  socket.send({ t: 'joinPlayer', code, seat, name: seat === 0 ? 'Ada' : 'Bo' });
+  socket.send({ t: 'joinPlayer', code, seat, name: SEAT_NAMES[seat] });
 
   /** A stamp for "this exact position", so the bot moves once per position. */
   function positionKey(current: PlayerView): string {
