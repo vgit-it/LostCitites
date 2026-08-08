@@ -61,6 +61,23 @@ describe('Card', () => {
     fireEvent.click(screen.getByLabelText('green 4'));
     expect(onClick).not.toHaveBeenCalled();
   });
+
+  it('carries a corner index alongside the big numeral', () => {
+    // Both are in the DOM on every card; CSS shows the index only inside a
+    // fan. Note this means a numeral matches twice — use getAllByText.
+    const { container } = render(<Card card={num('blue', 7)} />);
+    expect(container.querySelector('.card__index')?.textContent).toBe('7');
+    expect(container.querySelector('.card__value')?.textContent).toBe('7');
+  });
+
+  it('announces toggle state only when it is actually selectable', () => {
+    // A table card is not a toggle; aria-pressed="false" would claim it is.
+    const { container: plain } = render(<Card card={num('blue', 7)} />);
+    expect(plain.querySelector('.card')?.hasAttribute('aria-pressed')).toBe(false);
+
+    const { container: picked } = render(<Card card={num('blue', 8)} selected />);
+    expect(picked.querySelector('.card')?.getAttribute('aria-pressed')).toBe('true');
+  });
 });
 
 describe('Column', () => {

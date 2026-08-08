@@ -58,6 +58,21 @@
   opacity: 0.75;
 }
 
+/* The corner index exists only for the fanned hand, where neighbours bury
+   the centred numeral on every card but the last. Everywhere else the big
+   numeral is the whole point, and a second one would just be noise. */
+.card__index {
+  display: none;
+  position: absolute;
+  top: 0.2rem;
+  left: 0.32rem;
+  font-family: var(--font-numeral);
+  font-size: calc(var(--card-width) * 0.3);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
 .card:not(:disabled) {
   cursor: pointer;
 }
