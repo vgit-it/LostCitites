@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { PlayerView, ServerMessage, Seat, TableView } from '@shared/types';
 import { DEMO_CODE } from './hub';
-import { DEFAULT_SCENARIO, SCENARIOS, findScenario, startScenario } from './scenarios';
+import { SCENARIOS, findScenario, startScenario } from './scenarios';
+import { DEFAULT_SCENARIO } from './route';
 
 /** Joins the started game as the table and returns its latest view. */
 function tableView(game: ReturnType<typeof startScenario>): TableView {

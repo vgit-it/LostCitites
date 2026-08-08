@@ -1,0 +1,63 @@
+/* Chrome around the demo. Nothing here styles the game itself — Table and
+   Phone bring their own, and a demo that restyled them would stop being
+   evidence about the real interface. */
+
+.demo-index {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.demo-index__head h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.75rem;
+  letter-spacing: -0.01em;
+}
+
+.demo-index__section h2 {
+  margin: 0 0 0.75rem;
+}
+
+.demo-index__scenarios,
+.demo-index__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.demo-index__blurb {
+  margin: 0.75rem 0 0;
+}
+
+.demo-index__seed {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 0.4rem 0.7rem;
+  border-radius: var(--radius-sm, 0.4rem);
+  background: var(--surface-2, rgba(255, 255, 255, 0.06));
+}
+
+.demo-chip {
+  font: inherit;
+  font-size: 0.9rem;
+  color: inherit;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.16));
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color var(--motion-fast), border-color var(--motion-fast);
+}
+
+.demo-chip:hover {
+  background: var(--surface-2, rgba(255, 255, 255, 0.06));
+}
+
+.demo-chip.is-on {
+  background: var(--accent, #c9a227);
+  border-color: var(--accent, #c9a227);
+  color: var(--ink-inverse, #14110c);
+}

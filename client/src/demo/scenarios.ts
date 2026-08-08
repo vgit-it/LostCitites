@@ -16,6 +16,7 @@ import { PlayerView, Seat } from '@shared/types';
 import { mulberry32 } from '../../../server/rng';
 import { Bot, createBot, pump } from './bot';
 import { createHub, DemoHub } from './hub';
+import { DEFAULT_SCENARIO } from './route';
 
 export interface Scenario {
   id: string;
@@ -86,8 +87,6 @@ export const SCENARIOS: Scenario[] = [
     until: (view) => view.stage === 'matchEnd',
   },
 ];
-
-export const DEFAULT_SCENARIO = 'midround';
 
 export function findScenario(id: string | null): Scenario {
   return (
