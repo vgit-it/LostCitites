@@ -22,6 +22,11 @@
   line-height: 1;
   box-shadow: 0 1px 0 rgb(31 29 26 / 0.25);
   transition: transform var(--motion), box-shadow var(--motion);
+  /* A card is dragged and flicked; never let it turn into a text selection
+     or fire iOS's press-and-hold callout mid-gesture. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .card--sm {
@@ -377,8 +382,26 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  /* svh, not vh: on iOS the URL bar makes vh taller than the visible area,
+     and the hand is bottom-anchored so it is what gets pushed off. */
+  min-height: 100svh;
   gap: 0.75rem;
-  padding: 0.75rem;
+  /* index.html sets viewport-fit=cover, so the insets are live. The home
+     indicator sits exactly where the hand is gripped. */
+  padding: calc(0.75rem + env(safe-area-inset-top))
+    calc(0.75rem + env(safe-area-inset-right))
+    calc(0.75rem + env(safe-area-inset-bottom))
+    calc(0.75rem + env(safe-area-inset-left));
+  /* Kills the 300ms tap delay. Never `none` here — that would take iOS's
+     swipe-back with it; the lifted card scopes that to itself. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone--waiting {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
 }
 
 .banner {
@@ -392,6 +415,7 @@
   font-family: var(--font-numeral);
   font-size: 1.3rem;
   font-weight: 600;
+  transition: background-color var(--motion), color var(--motion);
 }
 
 .banner.is-active {
@@ -461,11 +485,28 @@
   text-decoration: none;
   text-align: center;
   cursor: pointer;
+  transition: transform 90ms ease-out, opacity var(--motion);
+}
+
+.action:not(:disabled):active {
+  transform: translateY(1px);
 }
 
 .action--play {
   background: var(--ink);
   color: var(--paper);
+}
+
+/* Discard is the semi-destructive half of a turn: legible as an equal
+   target, but never wearing the filled treatment that means "play". */
+.action--discard {
+  background: transparent;
+  border-color: var(--rule);
+  color: var(--ink);
+}
+
+.action--discard:not(:disabled):hover {
+  border-color: var(--ink);
 }
 
 .action.is-selected {
