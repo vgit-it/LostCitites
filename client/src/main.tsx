@@ -9,8 +9,9 @@
 // store are constructed. Everything below consumes them through hooks.
 // ============================================================
 
-import { StrictMode, useState } from 'react';
+import { StrictMode, Suspense, lazy, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { demoHash, parseDemoHash } from './demo/route';
 import { createLocalStorageRejoinStore } from './session/rejoinStore';
 import { createSessionStore } from './session/session';
 import { createSocketClient } from './session/socket';
@@ -20,9 +21,27 @@ import { Phone } from './phone/Phone';
 import './styles/tokens.css';
 import './styles/app.css';
 
+/**
+ * Everything under demo/ arrives in its own chunk, including the server it
+ * runs in the browser. The LAN build never ships it and never fetches it.
+ */
+const DemoApp = lazy(() => import('./demo/DemoApp'));
+
 const rejoin = createLocalStorageRejoinStore();
-const socket = createSocketClient();
-const session = createSessionStore(socket, rejoin);
+
+/**
+ * Built on demand rather than at module scope.
+ *
+ * createSocketClient() opens a WebSocket the moment it is called and retries
+ * for as long as the page is open. On a static host there is nothing to
+ * reach, so a demo route must never construct one — it would spend the whole
+ * session failing to connect to a server that does not exist.
+ */
+let live: ReturnType<typeof createSessionStore> | null = null;
+function liveSession() {
+  if (!live) live = createSessionStore(createSocketClient(), rejoin);
+  return live;
+}
 
 /**
  * The table generates and owns its room code: the wire views carry no code
@@ -46,6 +65,11 @@ function RolePicker() {
         <a className="action" href="/play">
           I&rsquo;m a player
         </a>
+        {/* Also the only working entry point on a static host, where /table
+            and /play have no server to fall back to. */}
+        <a className="action" href={demoHash({ view: 'index' })}>
+          Demo &mdash; no server needed
+        </a>
       </div>
       <p className="label screen__footnote">
         One tablet on the table, one phone each.
@@ -65,10 +89,26 @@ function App() {
   return <RolePicker />;
 }
 
+// The demo owns its own session stores, one per interface, so it mounts
+// outside the live provider entirely.
+const demo = parseDemoHash(window.location.hash);
+
+// The route is read once, at module scope, so crossing between the live app
+// and the demo — or using the back button to do it — has to reload. Both
+// sides construct their sockets on the way in, and neither is built to be
+// torn down and swapped for the other while the page stays up.
+window.addEventListener('hashchange', () => window.location.reload());
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <SessionProvider store={session}>
-      <App />
-    </SessionProvider>
+    {demo ? (
+      <Suspense fallback={<div className="screen" />}>
+        <DemoApp params={demo} />
+      </Suspense>
+    ) : (
+      <SessionProvider store={liveSession()}>
+        <App />
+      </SessionProvider>
+    )}
   </StrictMode>,
 );

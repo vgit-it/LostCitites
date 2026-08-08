@@ -7,6 +7,10 @@ const SERVER_PORT = 3001;
 
 export default defineConfig({
   root: 'client',
+  // GitHub Pages serves a project site from a subpath, and a PR preview from
+  // a deeper one. Only asset URLs depend on this — the demo routes live in
+  // the hash, so they need no rewriting per deployment.
+  base: process.env.BASE_PATH ?? '/',
   plugins: [react()],
   resolve: {
     alias: {
