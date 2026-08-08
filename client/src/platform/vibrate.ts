@@ -47,6 +47,22 @@ export function vibrateTick(): void {
   buzz(10, true);
 }
 
+/**
+ * A card has come up out of the fan and is now travelling with the thumb.
+ *
+ * Firmer than a tick on purpose: this is the moment a press stops being a
+ * press, and it is the only signal that the hold was long enough. Without it
+ * players keep holding, then drag a hand that never picked anything up.
+ */
+export function vibrateLift(): void {
+  buzz(22, false);
+}
+
+/** Crossing into a drop zone. A tick, throttled — the thumb wanders. */
+export function vibrateZone(): void {
+  buzz(10, true);
+}
+
 /** A card committed to the board. The one haptic with a shape to it. */
 export function vibrateCommit(): void {
   buzz([12, 40, 18], false);

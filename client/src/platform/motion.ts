@@ -21,6 +21,8 @@
 export const FLIGHT_MS = 260;
 export const LAND_MS = 180;
 export const DRAW_FLIGHT_MS = 240;
+/** The refusal shake. Long enough to read as "no", short enough to retry. */
+export const SHAKE_MS = 320;
 
 /** The app's one easing curve, matching cubic-bezier(0.2, 0.7, 0.3, 1). */
 export const EASE = 'cubic-bezier(0.2, 0.7, 0.3, 1)';

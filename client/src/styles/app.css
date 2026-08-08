@@ -491,14 +491,18 @@
 
 /* ---------- the tray ---------- */
 
-/* The min-height is the whole point: board and place both fit inside it, so
-   picking up a card swaps the contents with zero reflow. Draw is a phase
-   change rather than a same-turn swap, and is allowed to grow. */
+/* The fixed height is the whole point, and it does two jobs now.
+   Every mode fits inside it, so picking up a card swaps the contents with
+   zero reflow — and a drop target that resized under the thumb mid-drag
+   would be a target that moved out from under the gesture aiming at it. */
 .tray {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  min-height: 5.25rem;
+  height: 30svh;
+  min-height: 10.5rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--rule);
 }
 
 @keyframes tray-enter {
@@ -508,15 +512,31 @@
   }
 }
 
+/* Fills the tray rather than hugging its contents. Load-bearing for the drop
+   zones: they size themselves as a percentage of this, and against an
+   auto-height parent that percentage silently falls back to content height —
+   which is how two full-height targets ended up as a pair of short buttons
+   with 180px of dead paper under them. */
 .tray__inner {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
   animation: tray-enter 160ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
 }
 
+/* The player's own side of the table, pinned below the hand. Permanently on
+   screen now rather than one of the tray's moods — which is what makes the
+   draw phase answerable: whether the green 8 on the discard is worth taking
+   is entirely a question about your green column. */
 .board-strip {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--rule);
 }
 
 .board-strip__chips {
@@ -595,22 +615,57 @@
 
 /* Every slot occupies the same grid cell and is placed by its own transform,
    so the container auto-sizes to one card and the fan spills symmetrically
-   out of it. Nothing above this may set overflow — a fan reaches about 1.4
-   card widths past its box on each side and would be sheared off. */
+   out of it. Nothing above this may set overflow — a fan reaches well past
+   its box on each side and would be sheared off.
+
+   Which is why --fan-span exists. Hand.tsx measures the fan's width in card
+   widths and sets it inline, so the viewport divides by it: opening the fan
+   yields smaller cards rather than cards that overflow a box nothing is
+   allowed to clip. Closed, they are the biggest they have ever been. */
 .hand--fan {
-  --fan-card-w: min(5.5rem, 24vw);
+  --fan-span: 3.9; /* a resting full hand, until Hand.tsx says otherwise */
+  --fan-card-w: min(8.5rem, 38vw, calc((100vw - 1.5rem) / var(--fan-span)));
   display: grid;
   justify-items: center;
-  align-items: end;
+  align-items: center;
+  align-content: center;
   list-style: none;
-  margin: auto 0 0;
-  padding: 2.5rem 0 0.5rem;
+  /* Takes the space between the table and the player's own board, and sits
+     in the middle of it. The hand used to be pinned to the bottom edge,
+     where a browser's chrome and the home indicator both live. */
+  flex: 1;
+  margin: 0;
+  /* Asymmetric: the headroom above is for the lift, and the deeper floor
+     below biases the fan up off the bottom third of the screen — which is
+     where the hand used to live and where a thumb rests, not where the eye
+     goes. */
+  padding: 2rem 0 4.5rem;
+  /* A press-and-hold on iOS raises the selection callout unless both of
+     these are off, and the callout eats the gesture that was picking a card
+     up. Safe here because there is no text in the hand to select. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Only while a gesture is actually running. Blanketing the hand with this
+   would hand every vertical swipe to us, including iOS's swipe-back, on a
+   surface the player spends the whole game resting a thumb on. */
+.hand.is-gesturing {
+  touch-action: none;
+}
+
+/* A dragged card follows the thumb, and a fanning hand follows it too. A
+   transition on either is a card that lags the finger holding it. */
+.hand__slot.is-dragging,
+.hand--fan.is-fanning .hand__slot {
+  transition: none;
 }
 
 /* Landscape on a short screen: height, not width, is what runs out. */
 @media (orientation: landscape) and (max-height: 480px) {
   .hand--fan {
-    --fan-card-w: min(5.5rem, 24vw, 26vh);
+    --fan-card-w: min(8.5rem, 38vw, 30vh, calc((100vw - 1.5rem) / var(--fan-span)));
   }
 }
 
@@ -649,16 +704,146 @@
   box-shadow: 0 6px 14px rgb(31 29 26 / 0.35);
 }
 
+/* Off the table entirely and travelling with the thumb. */
+.hand__slot.is-dragging .card {
+  box-shadow: 0 14px 28px rgb(31 29 26 / 0.4);
+}
+
+/* Transparent to hit-testing while it travels — and this is load-bearing,
+   not polish. The card sits directly under the thumb, so it is what
+   elementFromPoint returns at the moment of the drop; the zone underneath
+   would never be found and no drag would ever commit. The gesture still
+   arrives, because the pointer is captured by the list. CardFlight is
+   pointer-events: none for the same reason. */
+.hand__slot.is-dragging {
+  pointer-events: none;
+}
+
+/* "No" — for a card dropped on a zone the server did not offer.
+
+   On the card, never on the slot: the slot is simultaneously transitioning
+   back to its place in the fan now that the drag offset is gone, and an
+   animation and a transition on the same transform do not compose — the
+   animation would simply win and the card would shake wherever it was
+   abandoned instead of shaking its way home. */
+@keyframes card-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-7px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(2px); }
+}
+
+.hand__slot.is-refusing .card {
+  animation: card-shake 320ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
 /* Scoped to the raised card and nowhere else. Blanketing .phone with this
    would hand every vertical gesture to us — including iOS's swipe-back. */
 .hand__slot.is-lifted {
   touch-action: none;
 }
 
+/* Inert, but still legible. Deliberately no desaturation: the draw phase
+   mutes the hand, and which colours you are holding is precisely what
+   decides whether the green 8 on the discard is worth taking. Greying the
+   hand out is greying out the reason for the choice being made above it. */
 .hand--fan.is-muted {
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+/* Not your turn at all — nothing to decide, so the hand recedes properly. */
+.hand--fan.is-away {
   opacity: 0.45;
   filter: grayscale(0.5);
-  pointer-events: none;
+}
+
+/* ---------- the drop zones ---------- */
+
+/* Two targets filling the tray, so a drag has somewhere to land without
+   needing to be aimed. Deliberately large: this is a thumb travelling a
+   third of a screen, not a cursor. */
+.drop-zones {
+  display: flex;
+  flex: 1;
+  gap: 0.5rem;
+  padding: 0 0.25rem;
+}
+
+/* Labels sit at the foot of each zone, because the card being carried floats
+   above the thumb and the thumb is what lands on the target — anything
+   vertically centred here is read through a playing card. */
+.drop-zone {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  padding: 0.75rem 0.5rem 1rem;
+  border: 2px dashed var(--rule);
+  border-radius: var(--radius);
+  text-align: center;
+  transition: background-color var(--motion-fast), border-color var(--motion-fast),
+    transform var(--motion-fast);
+}
+
+.drop-zone__mark {
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--colour, var(--ink));
+}
+
+.drop-zone__label {
+  font-family: var(--font-numeral);
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.1;
+  text-transform: capitalize;
+}
+
+/* Armed: solid, filled, and slightly risen. The card is over it and letting
+   go now will commit — which is exactly why a dead zone must never pick this
+   up. Arming a target that will refuse the drop is a promise the release
+   cannot keep. */
+.drop-zone.is-over:not(.is-dead) {
+  border-style: solid;
+  border-color: var(--colour, var(--ink));
+  background: color-mix(in srgb, var(--colour, var(--ink)) 14%, transparent);
+  transform: translateY(-2px);
+}
+
+/* Starting a column is the one placement that cannot be walked back: it
+   commits to −20 before a point is scored. The zone says the cost while the
+   thumb is over it, which is the whole confirmation — a hold plus a drag is
+   not a gesture anyone makes by accident. */
+.drop-zone.is-costly .drop-zone__label {
+  color: var(--warn);
+}
+
+.drop-zone.is-costly.is-over:not(.is-dead) {
+  border-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+}
+
+/* Dead before it is ever dropped on. The server did not offer this target
+   for the card in the air, so the label stops naming an action and reads
+   the column back instead. */
+.drop-zone.is-dead {
+  opacity: 0.4;
+  border-style: dotted;
+}
+
+.drop-zone.is-dead .drop-zone__label {
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  font-weight: 400;
+  text-transform: none;
+}
+
+.drop-zone--discard {
+  --colour: var(--ink);
 }
 
 .place-actions {
@@ -741,31 +926,53 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1rem;
+  justify-content: center;
+  gap: 0.55rem;
+  height: 100%;
+}
+
+/* Read, not tapped: the same row outside the draw phase, sitting back so it
+   reads as the state of the table rather than a set of offers. */
+.draw-targets--reading {
+  opacity: 0.72;
 }
 
 .draw-targets__title {
   font-family: var(--font-numeral);
-  font-size: 1.5rem;
+  font-size: 1.1rem;
   margin: 0;
 }
 
+.draw-targets--reading .draw-targets__title {
+  font-family: var(--font-ui);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* nowrap, and the cards are flex items that may shrink: five piles always
+   read as one row of the table, at whatever size the viewport affords. A
+   wrapped second row would put two discards somewhere the eye does not
+   look. */
 .draw-targets__piles {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+  flex-wrap: nowrap;
+  gap: 0.35rem;
   justify-content: center;
+  width: 100%;
+  padding: 0 0.25rem;
 }
 
 .draw-targets__note {
   margin: 0;
+  text-align: center;
 }
 
 .draw-deck {
   display: flex;
   align-items: baseline;
-  gap: 0.6rem;
-  padding: 1rem 1.5rem;
+  gap: 0.5rem;
+  padding: 0.4rem 0.9rem;
   border: 1px solid var(--ink);
   border-radius: var(--radius);
   background: transparent;
@@ -782,7 +989,7 @@
 
 .draw-deck__count {
   font-family: var(--font-numeral);
-  font-size: 2rem;
+  font-size: 1.5rem;
   font-weight: 700;
 }
 
