@@ -11,7 +11,7 @@ import { Column } from './table/Column';
 import { profilePoints } from './table/ElevationProfile';
 import { DiscardRow, deckUrgency } from './table/DiscardRow';
 import { PlayerBreakdown } from './table/RoundEnd';
-import { Hand, sortHand } from './phone/Hand';
+import { Hand, fanLayout, slotTransform, sortHand } from './phone/Hand';
 import { DrawTargets } from './phone/DrawTargets';
 import { PlaceActions, expeditionHint } from './phone/PlaceActions';
 import {
@@ -130,9 +130,12 @@ describe('hand ordering', () => {
     ]);
   });
 
-  it('greys a card with no legal target and does not select it', () => {
+  it('mutes a card with no legal target but still lets you ask why', () => {
+    // Changed by design: an unplayable card used to be `disabled`, so there
+    // was no way to find out why it could not be played. It is now selectable
+    // and the tray answers with expeditionHint().
     const onSelect = vi.fn();
-    render(
+    const { container } = render(
       <Hand
         cards={[num('blue', 2), num('red', 5)]}
         legalPlacements={{ 'blue-2': ['discard'] }}
@@ -142,10 +145,102 @@ describe('hand ordering', () => {
     );
 
     fireEvent.click(screen.getByLabelText('red 5'));
-    expect(onSelect).not.toHaveBeenCalled();
+    expect(onSelect).toHaveBeenCalledWith('red-5');
+    expect(container.querySelector('[data-card-id="red-5"]')?.className).toContain('is-muted');
 
     fireEvent.click(screen.getByLabelText('blue 2'));
     expect(onSelect).toHaveBeenCalledWith('blue-2');
+    expect(container.querySelector('[data-card-id="blue-2"]')?.className).not.toContain('is-muted');
+  });
+
+  it('is genuinely inert when the turn is not this phone to act on', () => {
+    const onSelect = vi.fn();
+    render(
+      <Hand
+        cards={[num('blue', 2)]}
+        legalPlacements={{ 'blue-2': ['discard'] }}
+        selectedId={null}
+        onSelect={onSelect}
+        disabled
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('blue 2'));
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+});
+
+describe('fan layout', () => {
+  it('has nothing to place for an empty hand', () => {
+    expect(fanLayout(0)).toEqual([]);
+  });
+
+  it('leaves a single card square to the eye', () => {
+    expect(fanLayout(1)).toEqual([
+      { transform: 'translate(0.00%, 0.00%) rotate(0.00deg)', tx: 0, ty: 0, angle: 0, zIndex: 0 },
+    ]);
+  });
+
+  it('is symmetric about the middle of the hand', () => {
+    const slots = fanLayout(8);
+    for (let i = 0; i < slots.length; i += 1) {
+      expect(slots[i].angle).toBeCloseTo(-slots[slots.length - 1 - i].angle, 10);
+    }
+  });
+
+  it('runs left to right with the middle of the hand highest', () => {
+    const slots = fanLayout(8);
+    for (let i = 1; i < slots.length; i += 1) {
+      expect(slots[i].tx).toBeGreaterThan(slots[i - 1].tx);
+    }
+    // ty grows downward, so the centre cards carry the smallest values.
+    const centre = Math.min(...slots.map((s) => s.ty));
+    expect(slots[3].ty).toBeCloseTo(centre, 10);
+    expect(slots[0].ty).toBeGreaterThan(centre);
+  });
+
+  it('caps the total spread so a big hand never curls into a claw', () => {
+    const slots = fanLayout(20);
+    const spread = slots[slots.length - 1].angle - slots[0].angle;
+    expect(spread).toBeCloseTo(34, 10);
+  });
+
+  it('places a full hand exactly', () => {
+    expect(fanLayout(8).map((s) => s.transform)).toEqual([
+      'translate(-138.24%, 12.75%) rotate(-15.75deg)',
+      'translate(-99.36%, 6.52%) rotate(-11.25deg)',
+      'translate(-59.86%, 2.35%) rotate(-6.75deg)',
+      'translate(-19.99%, 0.26%) rotate(-2.25deg)',
+      'translate(19.99%, 0.26%) rotate(2.25deg)',
+      'translate(59.86%, 2.35%) rotate(6.75deg)',
+      'translate(99.36%, 6.52%) rotate(11.25deg)',
+      'translate(138.24%, 12.75%) rotate(15.75deg)',
+    ]);
+  });
+
+  it('keeps a full hand inside a narrow phone', () => {
+    // The load-bearing sum: the fan spans (tx range + one card). At
+    // --fan-card-w: min(5.5rem, 24vw) that is ~325px of a 360px screen, so
+    // it fits without the container ever needing to clip — which matters,
+    // because nothing in the app sets overflow and a clipped fan would be
+    // sheared rather than scrolled.
+    const slots = fanLayout(8);
+    const spanInCardWidths = (slots[7].tx - slots[0].tx) / 100 + 1;
+    expect(spanInCardWidths).toBeLessThan(3.9);
+    expect(spanInCardWidths * 0.24 * 100).toBeLessThan(92); // vw at 24vw cards
+  });
+
+  it('lifts a card clear of the fan and levels it', () => {
+    const slot = fanLayout(8)[0];
+    expect(slotTransform(slot, 'lifted')).toBe(
+      'translate(-138.24%, -21.00%) rotate(0.00deg) scale(1.06)',
+    );
+  });
+
+  it('sits an unplayable card back without disturbing its tilt', () => {
+    const slot = fanLayout(8)[0];
+    expect(slotTransform(slot, 'muted')).toBe('translate(-138.24%, 16.75%) rotate(-15.75deg)');
+    expect(slotTransform(slot, 'rest')).toBe(slot.transform);
   });
 });
 

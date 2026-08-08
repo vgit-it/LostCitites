@@ -81,10 +81,18 @@
   transform: translateY(1px);
 }
 
+/* Selection and focus must not look alike, and they used to: is-selected
+   owned the outline, so a keyboard user could not tell which card the ring
+   meant. Selection is now lift + shadow + an inset rule (the lift itself
+   lives on the wrapper); the outline belongs to focus alone.
+   Only Hand passes `selected`, so this cannot reach the table. */
 .card.is-selected {
+  box-shadow: 0 6px 14px rgb(31 29 26 / 0.35), inset 0 0 0 2px var(--paper);
+}
+
+.card:focus-visible {
   outline: 3px solid var(--ink);
   outline-offset: 2px;
-  transform: translateY(-0.4rem);
 }
 
 .card.is-dimmed {
@@ -458,13 +466,68 @@
   margin: 0;
 }
 
-.hand {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  justify-content: center;
-  margin-top: auto;
-  padding-top: 0.5rem;
+/* ---------- the fanned hand ---------- */
+
+/* Every slot occupies the same grid cell and is placed by its own transform,
+   so the container auto-sizes to one card and the fan spills symmetrically
+   out of it. Nothing above this may set overflow — a fan reaches about 1.4
+   card widths past its box on each side and would be sheared off. */
+.hand--fan {
+  --fan-card-w: min(5.5rem, 24vw);
+  display: grid;
+  justify-items: center;
+  align-items: end;
+  list-style: none;
+  margin: auto 0 0;
+  padding: 2.5rem 0 0.5rem;
+}
+
+/* Landscape on a short screen: height, not width, is what runs out. */
+@media (orientation: landscape) and (max-height: 480px) {
+  .hand--fan {
+    --fan-card-w: min(5.5rem, 24vw, 26vh);
+  }
+}
+
+/* 0,2,0 — beats .card--lg without !important. */
+.hand--fan .card {
+  --card-width: var(--fan-card-w);
+}
+
+.hand--fan .card__index {
+  display: block;
+}
+
+/* In a fan the big centred numeral is buried, so the corner index carries
+   the value and the colour mark moves out from under it. */
+.hand--fan .card__mark {
+  top: auto;
+  bottom: 0.25rem;
+}
+
+.hand__slot {
+  grid-area: 1 / 1;
+  transition: transform var(--motion), filter var(--motion), opacity var(--motion);
+}
+
+/* Legality reads as position, not as a wash: a muted card sits back in the
+   hand (that offset is composed into the inline transform, since an inline
+   transform beats any rule here). Opacity stays at 1 deliberately — a
+   translucent card in a 60% overlap lets its neighbour bleed through and
+   the fan turns to mush. */
+.hand__slot.is-muted .card {
+  filter: grayscale(0.8);
+}
+
+/* Lifted is the one state that must clear its neighbours' shadows. */
+.hand__slot.is-lifted .card {
+  box-shadow: 0 6px 14px rgb(31 29 26 / 0.35);
+}
+
+.hand--fan.is-muted {
+  opacity: 0.45;
+  filter: grayscale(0.5);
+  pointer-events: none;
 }
 
 .place-actions {
