@@ -14,10 +14,12 @@ import {
   useSession,
   useSessionError,
 } from '../session/useSession';
+import { BoardStrip } from './BoardStrip';
 import { DrawTargets } from './DrawTargets';
 import { Hand } from './Hand';
 import { PlaceActions } from './PlaceActions';
 import { JoinScreen } from './JoinScreen';
+import { Tray, TrayMode } from './Tray';
 
 export function Phone() {
   const session = useSession();
@@ -38,10 +40,13 @@ export function Phone() {
     if (myTurn) vibrateTurnStart();
   }, [myTurn]);
 
-  // Every new view is the server's answer to the last intent.
+  // Every new view is the server's answer to *someone's* intent — the
+  // opponent's moves land here too, and those cannot invalidate a card still
+  // sitting in your hand. Dropping the selection unconditionally meant the
+  // card you were holding fell out of your hand whenever they moved.
   useEffect(() => {
     setBusy(false);
-    setSelectedId(null);
+    setSelectedId((id) => (id && player?.hand.some((c) => c.id === id) ? id : null));
   }, [view]);
 
   if (!session.getCode()) {
@@ -66,6 +71,14 @@ export function Phone() {
     send(() => session.place(selectedId, target));
   };
 
+  const me = player.players[player.seat];
+  const drawing = myTurn && player.phase === 'draw';
+  // Derived, not asserted: during the window between sending a placement and
+  // the server's answer the card is genuinely gone from the hand.
+  const selected = player.hand.find((c) => c.id === selectedId) ?? null;
+
+  const trayMode: TrayMode = drawing ? 'draw' : selected && myTurn ? 'place' : 'board';
+
   return (
     <div className="phone">
       <Banner player={player} myTurn={myTurn} status={status} />
@@ -77,38 +90,43 @@ export function Phone() {
 
       {player.stage === 'lobby' && <LobbyPanel onDeal={() => session.startRound()} />}
 
-      {player.stage === 'playing' && myTurn && player.phase === 'draw' && (
-        <DrawTargets
-          deckCount={player.deckCount}
-          discardTops={player.discardTops}
-          legalDrawSources={player.legalDrawSources}
-          blockedDrawCardId={player.blockedDrawCardId}
-          busy={busy}
-          onDraw={(source) => send(() => session.draw(source))}
-        />
-      )}
-
-      {player.stage === 'playing' && (!myTurn || player.phase === 'place') && (
+      {player.stage === 'playing' && (
         <>
-          {selectedId && myTurn && (
-            <PlaceActions
-              card={player.hand.find((c) => c.id === selectedId)!}
-              targets={player.legalPlacements[selectedId] ?? []}
-              column={
-                player.players[player.seat].expeditions[
-                  player.hand.find((c) => c.id === selectedId)!.colour
-                ]
-              }
-              busy={busy}
-              onPlace={place}
-            />
-          )}
+          <Tray mode={trayMode}>
+            {trayMode === 'draw' ? (
+              <DrawTargets
+                deckCount={player.deckCount}
+                discardTops={player.discardTops}
+                legalDrawSources={player.legalDrawSources}
+                blockedDrawCardId={player.blockedDrawCardId}
+                busy={busy}
+                onDraw={(source) => send(() => session.draw(source))}
+              />
+            ) : trayMode === 'place' && selected ? (
+              <PlaceActions
+                card={selected}
+                targets={player.legalPlacements[selected.id] ?? []}
+                column={me.expeditions[selected.colour]}
+                busy={busy}
+                onPlace={place}
+              />
+            ) : (
+              <BoardStrip expeditions={me.expeditions} score={me.currentRoundScore} />
+            )}
+          </Tray>
+
+          {/*
+            The hand stays mounted through the draw phase and through the
+            opponent's turn — receded and inert rather than swapped out. The
+            hard unmount was most of why this screen read as a form.
+          */}
           <Hand
             cards={player.hand}
             legalPlacements={player.legalPlacements}
             selectedId={selectedId}
             onSelect={setSelectedId}
-            disabled={!myTurn || busy}
+            disabled={busy}
+            muted={!myTurn || drawing}
           />
         </>
       )}

@@ -14,6 +14,8 @@ import { PlayerBreakdown } from './table/RoundEnd';
 import { Hand, fanLayout, slotTransform, sortHand } from './phone/Hand';
 import { DrawTargets } from './phone/DrawTargets';
 import { PlaceActions, expeditionHint } from './phone/PlaceActions';
+import { BoardStrip, topOf, wagersIn } from './phone/BoardStrip';
+import { Tray } from './phone/Tray';
 import {
   canVibrate,
   resetVibrateThrottle,
@@ -473,6 +475,67 @@ describe('elevation profile', () => {
     expect(profilePoints([num('blue', 2), num('blue', 10)], 'up')).toBe(
       '0.000,1.000 0.000,0.500 1.000,0.500 1.000,0.000',
     );
+  });
+});
+
+describe('board strip', () => {
+  const empty = (): Record<Colour, CardModel[]> => ({
+    yellow: [],
+    blue: [],
+    white: [],
+    green: [],
+    red: [],
+  });
+
+  it('reads a column back by its highest number', () => {
+    expect(topOf([])).toBeNull();
+    expect(topOf([num('blue', 3), num('blue', 7)])).toBe(7);
+    // A column of wagers alone has no number to show yet.
+    expect(topOf([wager('blue', 1)])).toBeNull();
+  });
+
+  it('counts wagers as the multiplier they are', () => {
+    expect(wagersIn([])).toBe(0);
+    expect(wagersIn([wager('red', 1), wager('red', 2), num('red', 4)])).toBe(2);
+  });
+
+  it('distinguishes an unstarted column from a started one', () => {
+    const expeditions = empty();
+    expeditions.blue = [num('blue', 7)];
+    const { container } = render(<BoardStrip expeditions={expeditions} score={12} />);
+
+    expect(container.querySelector('[data-zone="blue"]')?.className).toContain('is-started');
+    expect(container.querySelector('[data-zone="red"]')?.className).not.toContain('is-started');
+  });
+
+  it('shows the live score the server sent, and every colour as a target', () => {
+    const { container } = render(<BoardStrip expeditions={empty()} score={-13} />);
+
+    expect(container.querySelector('.board-strip__score')?.textContent).toContain('-13');
+    // Each chip is a flight destination, addressable by colour.
+    for (const colour of ['yellow', 'blue', 'white', 'green', 'red']) {
+      expect(container.querySelector(`[data-zone="${colour}"]`)).toBeTruthy();
+    }
+  });
+});
+
+describe('tray', () => {
+  it('remounts its contents on a mode change so the enter animation runs', () => {
+    const { container, rerender } = render(
+      <Tray mode="board">
+        <p>board</p>
+      </Tray>,
+    );
+    const first = container.querySelector('.tray__inner');
+
+    rerender(
+      <Tray mode="place">
+        <p>place</p>
+      </Tray>,
+    );
+
+    expect(container.querySelector('.tray')?.className).toContain('tray--place');
+    expect(container.querySelector('.tray__inner')).not.toBe(first);
   });
 });
 

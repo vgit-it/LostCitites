@@ -5,7 +5,6 @@
 // legalPlacements. The hint text only reads back the column's current state.
 
 import { Card as CardModel, PlaceTarget } from '@shared/types';
-import { Card } from '../shared/Card';
 
 export interface PlaceActionsProps {
   card: CardModel;
@@ -37,14 +36,18 @@ export function PlaceActions({ card, targets, column, busy, onPlace }: PlaceActi
 
   return (
     <div className="place-actions">
-      <div className="place-actions__preview">
-        <Card card={card} size="lg" />
-      </div>
+      {/*
+        No preview card: the selected card is already lifted out of the fan
+        below, and a second copy would push the tray past the height that
+        keeps selection reflow-free.
 
+        data-zone marks each button as a flight destination.
+      */}
       <div className="place-actions__buttons">
         <button
           type="button"
           className="action action--play"
+          data-zone={card.colour}
           disabled={!canPlay || busy}
           onClick={() => onPlace('expedition')}
         >
@@ -53,6 +56,7 @@ export function PlaceActions({ card, targets, column, busy, onPlace }: PlaceActi
         <button
           type="button"
           className="action action--discard"
+          data-zone="discard"
           disabled={!targets.includes('discard') || busy}
           onClick={() => onPlace('discard')}
         >

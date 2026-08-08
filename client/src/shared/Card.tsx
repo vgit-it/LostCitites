@@ -14,7 +14,7 @@ export type CardSize = 'sm' | 'md' | 'lg';
  * A non-colour channel for every card, per the accessibility floor:
  * colour is never the only thing distinguishing an expedition.
  */
-const COLOUR_MARK: Record<Colour, string> = {
+export const COLOUR_MARK: Record<Colour, string> = {
   yellow: '▲',
   blue: '≈',
   white: '◆',
