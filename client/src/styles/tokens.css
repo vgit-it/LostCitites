@@ -1,0 +1,76 @@
+/* ============================================================
+   Field Survey palette (BUILD_SPEC §9).
+
+   The five expedition colours are the entire chromatic budget —
+   everything structural is paper, ink, and rule, so a card reads as
+   its colour instantly at a distance because nothing competes.
+   ============================================================ */
+
+:root {
+  --paper: #e8e3d6;
+  --ink: #1f1d1a;
+  --rule: #b4ac98;
+
+  --sand: #c9922e;
+  --deep: #1f5e75;
+  --summit: #8b9199;
+  --canopy: #2c5f3e;
+  --magma: #a33b26;
+
+  /* Colour key -> expedition hue. The only mapping in the app. */
+  --colour-yellow: var(--sand);
+  --colour-blue: var(--deep);
+  --colour-white: var(--summit);
+  --colour-green: var(--canopy);
+  --colour-red: var(--magma);
+
+  --paper-dim: #ded8c8;
+  --warn: #b8791f;
+  --danger: #a33b26;
+
+  --font-numeral: 'Barlow Condensed', 'Oswald', 'Arial Narrow', sans-serif;
+  --font-ui: 'IBM Plex Mono', 'Space Mono', ui-monospace, 'SF Mono', monospace;
+
+  --radius: 4px;
+  --motion: 180ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
+
+/* Labels and chrome: small, wide-tracked, uppercase — the survey feel. */
+.label {
+  font-family: var(--font-ui);
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink);
+  opacity: 0.65;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
