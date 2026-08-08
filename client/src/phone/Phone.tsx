@@ -14,6 +14,7 @@ import {
   useConnectionStatus,
   useSession,
   useSessionError,
+  useTableEvents,
 } from '../session/useSession';
 import { BoardStrip } from './BoardStrip';
 import { CardFlight, Rect } from './CardFlight';
@@ -34,6 +35,14 @@ function rectOf(selector: string): Rect | null {
   if (!el) return null;
   const r = el.getBoundingClientRect();
   return r.width > 0 ? { x: r.left, y: r.top, width: r.width, height: r.height } : null;
+}
+
+/** How long an opponent's move stays on the banner. */
+const CUE_MS = 2200;
+
+/** A card in words, for a cue line. */
+function describe(card: CardModel): string {
+  return card.value === 'wager' ? `a ${card.colour} wager` : `${card.colour} ${card.value}`;
 }
 
 interface Flight {
@@ -61,6 +70,8 @@ export function Phone() {
   const [flight, setFlight] = useState<Flight | null>(null);
   /** The chip that a card has just landed on, for one pulse. */
   const [landed, setLanded] = useState<CardModel['colour'] | null>(null);
+  /** What the opponent just did, shown briefly in the banner. */
+  const [opponentCue, setOpponentCue] = useState<string | null>(null);
 
   const player = view?.viewer === 'player' ? view : null;
   const myTurn = player ? player.turn === player.seat : false;
@@ -101,6 +112,35 @@ export function Phone() {
     drawFrom.current = null;
     if (card && from && to) setFlight({ card, from, to, durationMs: DRAW_FLIGHT_MS });
   }, [view]);
+
+  // What the opponent just did. Events rather than a diff of their state,
+  // and the distinction is load-bearing: a reconnect delivers a fresh full
+  // view that may differ from the last one arbitrarily, and a diff-driven
+  // animator would answer it with a flurry of cues for moves that happened
+  // minutes ago. Events simply do not have that failure mode.
+  //
+  // Cosmetic only — the next `state` remains the source of truth for
+  // everything shown here.
+  useTableEvents((event) => {
+    if (!player) return;
+    if (event.name === 'placed' && event.seat !== player.seat) {
+      setOpponentCue(
+        event.target === 'discard'
+          ? `discarded ${describe(event.card)}`
+          : `played ${describe(event.card)}`,
+      );
+    }
+    if (event.name === 'drew' && event.seat !== player.seat) {
+      setOpponentCue(event.source.kind === 'deck' ? 'drew from the deck' : 'took a discard');
+    }
+  });
+
+  // The cue is a flash, not a log: it clears itself.
+  useEffect(() => {
+    if (!opponentCue) return;
+    const timer = setTimeout(() => setOpponentCue(null), CUE_MS);
+    return () => clearTimeout(timer);
+  }, [opponentCue]);
 
   // The server refused the move: bring the card home and say so.
   useEffect(() => {
@@ -162,7 +202,7 @@ export function Phone() {
 
   return (
     <div className="phone">
-      <Banner player={player} myTurn={myTurn} status={status} />
+      <Banner player={player} myTurn={myTurn} status={status} cue={opponentCue} />
       {error && (
         <button type="button" className="toast" onClick={() => session.dismissError()}>
           {error}
@@ -258,22 +298,30 @@ function Banner({
   player,
   myTurn,
   status,
+  cue,
 }: {
   player: PlayerView;
   myTurn: boolean;
   status: string;
+  cue?: string | null;
 }) {
   const opponent = player.players[player.seat === 0 ? 1 : 0];
 
-  const message = !myTurn
+  const turnMessage = !myTurn
     ? `${opponent.name} is ${player.phase === 'place' ? 'placing' : 'drawing'}`
     : player.phase === 'place'
       ? 'Your turn — place a card'
       : 'Your turn — draw a card';
 
+  const message = cue ? `${opponent.name} ${cue}` : turnMessage;
+
   return (
-    <header className={`banner ${myTurn ? 'is-active' : ''}`}>
-      <span className="banner__message">{player.stage === 'playing' ? message : 'Lost Cities'}</span>
+    // aria-live so a turn handover and an opponent's move both announce
+    // themselves without stealing focus.
+    <header className={`banner ${myTurn ? 'is-active' : ''}`} aria-live="polite">
+      <span className={`banner__message${cue ? ' is-cue' : ''}`}>
+        {player.stage === 'playing' ? message : 'Lost Cities'}
+      </span>
       <span className="label">
         {status !== 'open' ? 'reconnecting…' : `deck ${player.deckCount}`}
       </span>
