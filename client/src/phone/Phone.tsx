@@ -212,6 +212,20 @@ export function Phone() {
             onSelect={setSelectedId}
             disabled={busy}
             muted={!myTurn || drawing}
+            onFlick={(intent, cardId) => {
+              if (intent === 'release') {
+                setSelectedId(null);
+                return;
+              }
+              // Only ever the reversible half of a turn. Discard stays a
+              // deliberate tap, and starting a column still asks twice.
+              const card = player.hand.find((c) => c.id === cardId);
+              const startsColumn =
+                card && me.expeditions[card.colour].length === 0 && card.value !== 'wager';
+              if (!busy && !startsColumn && player.legalPlacements[cardId]?.includes('expedition')) {
+                place('expedition');
+              }
+            }}
           />
         </>
       )}

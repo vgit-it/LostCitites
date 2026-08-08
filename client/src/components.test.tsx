@@ -4,17 +4,17 @@
 // no mocking — which is the point of keeping them presentational.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Card as CardModel, Colour, PublicPlayerView } from '@shared/types';
 import { Card } from './shared/Card';
 import { Column } from './table/Column';
 import { profilePoints } from './table/ElevationProfile';
 import { DiscardRow, deckUrgency } from './table/DiscardRow';
 import { PlayerBreakdown } from './table/RoundEnd';
-import { Hand, drawnCardId, fanLayout, slotTransform, sortHand } from './phone/Hand';
+import { Hand, drawnCardId, fanLayout, flickIntent, slotTransform, sortHand } from './phone/Hand';
 import { CardFlight } from './phone/CardFlight';
 import { DrawTargets } from './phone/DrawTargets';
-import { PlaceActions, expeditionHint } from './phone/PlaceActions';
+import { PlaceActions, expeditionHint, placementWeight } from './phone/PlaceActions';
 import { BoardStrip, topOf, wagersIn } from './phone/BoardStrip';
 import { Tray } from './phone/Tray';
 import {
@@ -357,6 +357,74 @@ describe('place actions', () => {
     );
   });
 
+  it('treats starting a column as the one irreversible commitment', () => {
+    expect(placementWeight([], num('blue', 7))).toBe('commits');
+    // A wager cannot start a column's scoring on its own.
+    expect(placementWeight([], wager('blue', 1))).toBe('normal');
+    expect(placementWeight([num('blue', 3)], num('blue', 7))).toBe('normal');
+  });
+
+  it('asks twice before starting a column, and discloses the cost', () => {
+    const onPlace = vi.fn();
+    render(
+      <PlaceActions
+        card={num('blue', 7)}
+        targets={['expedition', 'discard']}
+        column={[]}
+        onPlace={onPlace}
+      />,
+    );
+
+    const play = screen.getByRole('button', { name: /play to blue/i });
+    expect(play.textContent).toContain('costs 20');
+
+    fireEvent.click(play);
+    expect(onPlace).not.toHaveBeenCalled();
+
+    const armed = screen.getByRole('button', { name: /tap again to start blue/i });
+    fireEvent.click(armed);
+    expect(onPlace).toHaveBeenCalledWith('expedition');
+  });
+
+  it('plays a card into a started column on the first tap', () => {
+    const onPlace = vi.fn();
+    render(
+      <PlaceActions
+        card={num('blue', 9)}
+        targets={['expedition', 'discard']}
+        column={[num('blue', 3)]}
+        onPlace={onPlace}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /play to blue/i }));
+    expect(onPlace).toHaveBeenCalledWith('expedition');
+  });
+
+  it('disarms itself if the question goes unanswered', () => {
+    vi.useFakeTimers();
+    const onPlace = vi.fn();
+    render(
+      <PlaceActions
+        card={num('blue', 7)}
+        targets={['expedition', 'discard']}
+        column={[]}
+        onPlace={onPlace}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /play to blue/i }));
+    expect(screen.getByRole('button', { name: /tap again/i })).toBeTruthy();
+
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+
+    expect(screen.getByRole('button', { name: /costs 20/i })).toBeTruthy();
+    expect(onPlace).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
   it('explains why by reading the column back', () => {
     expect(expeditionHint([num('blue', 7)], num('blue', 4))).toBe('blue is at 7');
     expect(expeditionHint([], num('blue', 4))).toBe('Cannot start blue');
@@ -476,6 +544,52 @@ describe('elevation profile', () => {
     expect(profilePoints([num('blue', 2), num('blue', 10)], 'up')).toBe(
       '0.000,1.000 0.000,0.500 1.000,0.500 1.000,0.000',
     );
+  });
+});
+
+describe('flick intent', () => {
+  it('plays on a decisive throw upward', () => {
+    expect(flickIntent(-60, -0.2)).toBe('play');
+    // Short but fast counts too.
+    expect(flickIntent(-30, -0.8)).toBe('play');
+  });
+
+  it('releases downward rather than discarding', () => {
+    // Down is the change-of-mind gesture, so it must not be wired to the
+    // irreversible half of a turn.
+    expect(flickIntent(50, 0.2)).toBe('release');
+    expect(flickIntent(25, 0.7)).toBe('release');
+  });
+
+  it('ignores a nudge', () => {
+    expect(flickIntent(0, 0)).toBe('none');
+    expect(flickIntent(-20, -0.1)).toBe('none');
+    expect(flickIntent(30, 0.1)).toBe('none');
+  });
+
+  it('reports a flick up through the hand, but not a sideways scrub', () => {
+    const onFlick = vi.fn();
+    const { container } = render(
+      <Hand
+        cards={[num('blue', 2)]}
+        legalPlacements={{ 'blue-2': ['expedition'] }}
+        selectedId="blue-2"
+        onSelect={vi.fn()}
+        onFlick={onFlick}
+      />,
+    );
+
+    const list = container.querySelector('.hand--fan') as HTMLElement;
+    stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
+
+    fireEvent.pointerDown(list, { clientX: 100, clientY: 300, button: 0 });
+    fireEvent.pointerUp(list, { clientX: 100, clientY: 220 });
+    expect(onFlick).toHaveBeenCalledWith('play', 'blue-2');
+
+    onFlick.mockClear();
+    fireEvent.pointerDown(list, { clientX: 100, clientY: 300, button: 0 });
+    fireEvent.pointerUp(list, { clientX: 180, clientY: 302 });
+    expect(onFlick).not.toHaveBeenCalled();
   });
 });
 

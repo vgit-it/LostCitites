@@ -17,7 +17,11 @@ export interface HandProps {
   disabled?: boolean;
   /** Receded and non-interactive while the turn is elsewhere in the UI. */
   muted?: boolean;
+  /** A card was thrown. 'release' means put it back, not discard it. */
+  onFlick?: (intent: FlickIntent, cardId: string) => void;
 }
+
+export type FlickIntent = 'play' | 'release' | 'none';
 
 export interface FanSlot {
   /** Ready for the wrapper's inline style, in the resting state. */
@@ -115,6 +119,25 @@ export function drawnCardId(prev: CardModel[], next: CardModel[]): string | null
   return arrived.length === 1 ? arrived[0].id : null;
 }
 
+/**
+ * What a throw meant. `dy` is pixels travelled (negative is up) and `vy` is
+ * px/ms at release, so a short fast flick counts as much as a long slow one.
+ *
+ * Note what down does *not* mean: discard. Down is the gesture a player
+ * makes when they change their mind, and discard is the irreversible half of
+ * a turn — binding the most reversible-feeling gesture to it is how a UI
+ * stops being trusted. Down releases the card back into the hand; discard
+ * stays a deliberate tap.
+ */
+export function flickIntent(dy: number, vy: number): FlickIntent {
+  if (dy < -48 || (dy < -24 && vy < -0.5)) return 'play';
+  if (dy > 40 || (dy > 20 && vy > 0.5)) return 'release';
+  return 'none';
+}
+
+/** Sideways travel this far with little vertical movement is a scrub. */
+const SCRUB_DX = 24;
+
 /** The wrapper transform for a slot in a given state. Pure. */
 export function slotTransform(slot: FanSlot, state: SlotState): string {
   switch (state) {
@@ -150,10 +173,13 @@ export function Hand({
   onSelect,
   disabled,
   muted,
+  onFlick,
 }: HandProps) {
   const ordered = sortHand(cards);
   const slots = fanLayout(ordered.length);
   const scrubbing = useRef(false);
+  /** Where and when the current gesture started, for the flick maths. */
+  const origin = useRef<{ x: number; y: number; t: number } | null>(null);
 
   const className = ['hand', 'hand--fan', muted && 'is-muted'].filter(Boolean).join(' ');
 
@@ -168,6 +194,7 @@ export function Hand({
   function handlePointerDown(event: React.PointerEvent<HTMLUListElement>): void {
     if (disabled || event.button !== 0) return;
     scrubbing.current = true;
+    origin.current = { x: event.clientX, y: event.clientY, t: Date.now() };
     // Capture on the list, not the card: the thumb will leave the card it
     // started on, and we still want its moves.
     event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -180,8 +207,24 @@ export function Hand({
   }
 
   function endScrub(event: React.PointerEvent<HTMLUListElement>): void {
+    const start = origin.current;
+    const wasScrubbing = scrubbing.current;
     scrubbing.current = false;
+    origin.current = null;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
+
+    if (!wasScrubbing || !start || !onFlick || !selectedId || event.type === 'pointercancel') {
+      return;
+    }
+
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    // A thumb travelling sideways is choosing a card, not throwing one.
+    if (Math.abs(dx) > SCRUB_DX && Math.abs(dy) < SCRUB_DX) return;
+
+    const dt = Math.max(1, Date.now() - start.t);
+    const intent = flickIntent(dy, dy / dt);
+    if (intent !== 'none') onFlick(intent, selectedId);
   }
 
   return (

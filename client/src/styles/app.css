@@ -711,6 +711,15 @@
   color: var(--paper);
 }
 
+/* Armed: the button has asked a question and is waiting for the answer.
+   Inverted against --warn so it cannot be mistaken for the resting state
+   that was just tapped. */
+.action.is-armed {
+  background: var(--warn);
+  border-color: var(--warn);
+  color: var(--paper);
+}
+
 .action:disabled {
   opacity: 0.35;
   cursor: default;
