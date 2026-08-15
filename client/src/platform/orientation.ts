@@ -1,8 +1,8 @@
-// Asking the browser to stay in landscape.
+// Asking the browser to stay in portrait.
 //
 // Best-effort by design. Screen Orientation locking is only permitted from a
 // fullscreen or installed context, so on an ordinary browser tab this does
-// nothing at all and that is fine: the layout's own portrait branch is what
+// nothing at all and that is fine: the layout's own rotate gate is what
 // actually handles a sideways phone. This is the bonus for a player who has
 // added the game to their home screen.
 //
@@ -15,14 +15,14 @@ interface LockableOrientation {
   lock?: (orientation: string) => Promise<void>;
 }
 
-export function lockLandscape(): void {
+export function lockPortrait(): void {
   const orientation = (screen as unknown as { orientation?: LockableOrientation }).orientation;
   // A rejected promise here is the normal case, not an error worth surfacing.
-  void orientation?.lock?.('landscape').catch(() => undefined);
+  void orientation?.lock?.('portrait').catch(() => undefined);
 }
 
-export function useLandscapeLock(enabled = true): void {
+export function usePortraitLock(enabled = true): void {
   useEffect(() => {
-    if (enabled) lockLandscape();
+    if (enabled) lockPortrait();
   }, [enabled]);
 }

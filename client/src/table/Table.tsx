@@ -7,7 +7,16 @@
 // would not have been.
 
 import { useEffect, useRef, useState } from 'react';
-import { COLOURS, Card as CardModel, DrawSource, TableView } from '@shared/types';
+import {
+  COLOURS,
+  Card as CardModel,
+  Colour,
+  DrawSource,
+  PublicPlayerView,
+  Seat,
+  TableView,
+} from '@shared/types';
+import { scoreExpedition } from '@shared/rules';
 import {
   useClientView,
   useConnectionStatus,
@@ -22,7 +31,14 @@ import { Column } from './Column';
 import { ColumnMetrics, sideMetrics } from './columnMetrics';
 import { DiscardRow } from './DiscardRow';
 import { FlightPlan, planFlight } from './flights';
+import { JoinCode } from './JoinCode';
 import { MatchEnd, RoundEnd } from './RoundEnd';
+
+/** A seat's join link, for the lobby QR. What `main.tsx` builds from the code. */
+export interface SeatInvite {
+  seat: Seat;
+  url: string;
+}
 
 /**
  * The two numbers the CSS needs to size a side's cards, as custom properties.
@@ -60,7 +76,7 @@ interface Flight {
   kind: 'land' | 'throw';
 }
 
-export function Table({ code }: { code: string }) {
+export function Table({ code, invites }: { code: string; invites?: SeatInvite[] }) {
   const session = useSession();
   const view = useClientView();
   const status = useConnectionStatus();
@@ -126,13 +142,13 @@ export function Table({ code }: { code: string }) {
   }, [session, code]);
 
   if (!view || view.viewer !== 'table') {
-    return <Waiting code={code} status={status} />;
+    return <Waiting code={code} status={status} invites={invites} />;
   }
 
   return (
     <div className="table">
       {status !== 'open' && <div className="reconnect-bar label">Reconnecting…</div>}
-      {view.stage === 'lobby' && <Lobby view={view} code={code} />}
+      {view.stage === 'lobby' && <Lobby view={view} code={code} invites={invites} />}
       {view.stage === 'playing' && (
         <Board
           view={view}
@@ -162,34 +178,212 @@ export function Table({ code }: { code: string }) {
   );
 }
 
-function Waiting({ code, status }: { code: string; status: string }) {
+/** An empty seat slot: its QR if one was given, else the plain waiting dot. */
+export function SeatSlot({
+  seat,
+  name,
+  invites,
+}: {
+  seat: Seat;
+  name?: string;
+  invites?: SeatInvite[];
+}) {
+  if (name) {
+    return (
+      <>
+        <span className="lobby__dot" aria-hidden="true" />
+        {name}
+      </>
+    );
+  }
+  const invite = invites?.find((i) => i.seat === seat);
+  if (invite) return <JoinCode url={invite.url} label={`Scan to join as seat ${seat + 1}`} />;
+  return (
+    <>
+      <span className="lobby__dot" aria-hidden="true" />
+      {`Seat ${seat + 1} — waiting`}
+    </>
+  );
+}
+
+function Waiting({
+  code,
+  status,
+  invites,
+}: {
+  code: string;
+  status: string;
+  invites?: SeatInvite[];
+}) {
   return (
     <div className="screen screen--lobby">
       <p className="label">Room code</p>
       <p className="lobby__code">{code}</p>
+      {invites && (
+        <ul className="lobby__seats">
+          {invites.map((invite) => (
+            <li key={invite.seat} className="has-code">
+              <SeatSlot seat={invite.seat} invites={invites} />
+            </li>
+          ))}
+        </ul>
+      )}
       <p className="label">{status === 'open' ? 'Joining…' : 'Connecting…'}</p>
     </div>
   );
 }
 
-function Lobby({ view, code }: { view: TableView; code: string }) {
+function Lobby({
+  view,
+  code,
+  invites,
+}: {
+  view: TableView;
+  code: string;
+  invites?: SeatInvite[];
+}) {
   return (
     <div className="screen screen--lobby">
       <p className="label">Room code</p>
       <p className="lobby__code">{code}</p>
       <ul className="lobby__seats">
-        {view.players.map((player) => (
-          <li key={player.seat} className={player.connected ? 'is-connected' : undefined}>
-            <span className="lobby__dot" aria-hidden="true" />
-            {player.connected ? player.name : `Seat ${player.seat + 1} — waiting`}
-          </li>
-        ))}
+        {view.players.map((player) => {
+          const hasCode = !player.connected && invites?.some((i) => i.seat === player.seat);
+          return (
+            <li
+              key={player.seat}
+              className={player.connected ? 'is-connected' : hasCode ? 'has-code' : undefined}
+            >
+              <SeatSlot
+                seat={player.seat}
+                name={player.connected ? player.name : undefined}
+                invites={invites}
+              />
+            </li>
+          );
+        })}
       </ul>
       <p className="label screen__footnote">
         {view.players.every((p) => p.connected)
           ? 'Both in. Deal from either phone.'
-          : 'Open /play on each phone and enter the code.'}
+          : 'Open /play on each phone and enter the code, or scan the code above.'}
       </p>
+    </div>
+  );
+}
+
+/**
+ * One player's name, running score, and (only while it is theirs) the turn
+ * and phase. Sits at the outer edge of that player's own side.
+ *
+ * `flipped` turns the whole plate to face the player sitting opposite —
+ * scoped to this leaf alone, never to `.board__side` itself: that element
+ * already owns a `translateX` for its stair, and rotating an ancestor of a
+ * `position: fixed` `CardFlight` would make it a containing block. Neither
+ * risk exists here — a name plate has no positioned descendants.
+ */
+export function SeatPlate({
+  player,
+  active,
+  phase,
+  flipped,
+}: {
+  player: PublicPlayerView;
+  active: boolean;
+  phase: TableView['phase'];
+  flipped: boolean;
+}) {
+  return (
+    <div
+      className={`seat-plate${active ? ' is-active' : ''}${flipped ? ' seat-plate--flipped' : ''}`}
+    >
+      <span className="seat-plate__name">{player.name}</span>
+      <span className="seat-plate__score">
+        {player.roundScores.reduce((a, b) => a + b, 0) + player.currentRoundScore}
+      </span>
+      {active && (
+        <span className="seat-plate__turn label">
+          {phase === 'place' ? 'Placing a card' : 'Drawing a card'} · {player.handCount} in hand
+        </span>
+      )}
+      {!player.connected && <span className="seat-plate__offline label">offline</span>}
+    </div>
+  );
+}
+
+/**
+ * One band of the name row: the round counter's gutter cell (top only, and
+ * never rotated — it belongs to the table, not to a player) plus the plate,
+ * spanning the five colour tracks so it lines up with nothing in particular
+ * and reads centred above/below the board.
+ */
+function NameRow({
+  player,
+  active,
+  phase,
+  flipped,
+  round,
+}: {
+  player: PublicPlayerView;
+  active: boolean;
+  phase: TableView['phase'];
+  flipped: boolean;
+  /** Only the top row carries this — one counter for the whole table. */
+  round?: number;
+}) {
+  return (
+    <div className={`name-row name-row--${flipped ? 'top' : 'bottom'}`}>
+      {round !== undefined && (
+        <span className="round-chip label" style={{ gridColumn: 1 }}>
+          Round {round}/3
+        </span>
+      )}
+      <SeatPlate player={player} active={active} phase={phase} flipped={flipped} />
+    </div>
+  );
+}
+
+/**
+ * One track's worth of a side: the column and, on the edge facing the
+ * centre, that expedition's live score. The score is a sibling of `Column`,
+ * not a child — `.column` already carries `translateX(-half its stair)`, so
+ * a score inside it would drift left as the expedition grew and stop
+ * sitting over its own discard pile.
+ */
+export function Lane({
+  colour,
+  cards,
+  direction,
+  arrivingId,
+}: {
+  colour: Colour;
+  cards: CardModel[];
+  direction: 'up' | 'down';
+  arrivingId: string | null;
+}) {
+  // `RoundEnd.tsx` is the precedent for this import: display recomputation
+  // of a pure formula against cards the view already carries, not client
+  // rules logic.
+  const score = cards.length > 0 ? scoreExpedition(cards) : null;
+  const scoreLabel = score !== null && (
+    <span className={`lane__score${score < 0 ? ' is-negative' : ''}`}>
+      {score > 0 ? `+${score}` : score}
+    </span>
+  );
+
+  return (
+    <div
+      className={`lane lane--${direction === 'up' ? 'top' : 'bottom'}`}
+      // Shared six-track template (.board's --board-cols): track 1 is the
+      // deck's gutter, tracks 2..6 are the five colours in COLOURS order —
+      // the same order the discard row's piles fall into by DOM position
+      // alone. A side has no gutter-occupying child, so its lanes need this
+      // set explicitly or grid auto-placement would pack them into 1..5.
+      style={{ gridColumn: COLOURS.indexOf(colour) + 2 }}
+    >
+      {direction === 'up' && scoreLabel}
+      <Column colour={colour} cards={cards} direction={direction} arrivingId={arrivingId} />
+      {direction === 'down' && scoreLabel}
     </div>
   );
 }
@@ -204,29 +398,10 @@ function Board({
   onDraw: (source: DrawSource) => void;
 }) {
   const [seat0, seat1] = view.players;
-  const active = view.players[view.turn];
 
   return (
-    <>
-      <header className="status-bar">
-        <span className="label">
-          Round {view.round}/3
-        </span>
-        <div className="status-bar__scores">
-          {view.players.map((player) => (
-            <span
-              key={player.seat}
-              className={`score ${view.turn === player.seat ? 'is-active' : ''}`}
-            >
-              <span className="score__name">{player.name}</span>
-              <span className="score__value">
-                {player.roundScores.reduce((a, b) => a + b, 0) + player.currentRoundScore}
-              </span>
-              {!player.connected && <span className="score__offline label">offline</span>}
-            </span>
-          ))}
-        </div>
-      </header>
+    <div className="board">
+      <NameRow player={seat1} active={view.turn === 1} phase={view.phase} flipped round={view.round} />
 
       {/*
         Each side is sized by its own longest column, so a player with a deep
@@ -238,7 +413,7 @@ function Board({
         aria-label={`${seat1.name} expeditions`}
       >
         {COLOURS.map((colour) => (
-          <Column
+          <Lane
             key={colour}
             colour={colour}
             cards={seat1.expeditions[colour]}
@@ -268,7 +443,7 @@ function Board({
         aria-label={`${seat0.name} expeditions`}
       >
         {COLOURS.map((colour) => (
-          <Column
+          <Lane
             key={colour}
             colour={colour}
             cards={seat0.expeditions[colour]}
@@ -278,15 +453,7 @@ function Board({
         ))}
       </section>
 
-      <footer className="turn-bar">
-        <span className="turn-bar__who">
-          {active.name}
-          {"'"}s turn — {view.phase === 'place' ? 'placing a card' : 'drawing a card'}
-        </span>
-        <span className="label">
-          {active.handCount} cards in hand
-        </span>
-      </footer>
-    </>
+      <NameRow player={seat0} active={view.turn === 0} phase={view.phase} flipped={false} />
+    </div>
   );
 }

@@ -80,7 +80,7 @@ export function DemoIndex({ params }: { params: DemoParams }) {
           </a>
         </div>
         <p className="label">
-          Open a phone route on an actual phone, sideways. Each device that
+          Open a phone route on an actual phone, held upright. Each device that
           opens one on its own runs its own game, with a bot in the other
           seat — the panes view is the one where all three share a match.
         </p>

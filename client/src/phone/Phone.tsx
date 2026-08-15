@@ -1,4 +1,4 @@
-// The phone controller: a hand of cards, held sideways, and nothing else.
+// The phone controller: a hand of cards, held upright, and nothing else.
 //
 // No deck, no discards, no expedition columns. All of that is on the table
 // the player is already looking at, and putting a small copy of it here was
@@ -9,20 +9,23 @@
 // view. This component only turns throws into intents.
 
 import { useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Card as CardModel, DrawSource, PlaceTarget, PlayerView, Seat } from '@shared/types';
 import { vibrateCommit, vibrateDraw, vibrateReject, vibrateTurnStart } from '../platform/vibrate';
 import { DRAW_FLIGHT_MS, SHAKE_MS } from '../platform/motion';
-import { useLandscapeLock } from '../platform/orientation';
+import { usePortraitLock } from '../platform/orientation';
 import { useWakeLock } from '../platform/wakeLock';
 import {
   useClientView,
   useConnectionStatus,
+  useServerSeq,
   useSession,
   useSessionError,
   useTableEvents,
 } from '../session/useSession';
 import { CardFlight, Rect } from '../shared/CardFlight';
 import { edgeRect } from '../shared/flightPath';
+import { Invite, resolveInvite } from '../shared/invite';
 import { Throw } from './throw';
 import { FlickZones } from './FlickZones';
 import { Hand, drawnCardId } from './Hand';
@@ -67,13 +70,22 @@ interface Flight {
   durationMs?: number;
 }
 
-export function Phone() {
+export function Phone({
+  invite = null,
+  lastName = '',
+}: {
+  /** What a scanned QR asked for, if this device opened one. */
+  invite?: Invite | null;
+  /** This device's name from a previous game, offered as a default. */
+  lastName?: string;
+} = {}) {
   const session = useSession();
   const view = useClientView();
   const status = useConnectionStatus();
   const error = useSessionError();
+  const seq = useServerSeq();
   useWakeLock();
-  useLandscapeLock();
+  usePortraitLock();
 
   /** Set on send, cleared by the next view — stops a double throw. */
   const [busy, setBusy] = useState(false);
@@ -102,9 +114,14 @@ export function Phone() {
     if (myTurn) vibrateTurnStart();
   }, [myTurn]);
 
+  // Cleared by any server reply, not only a fresh view: a rejected `place`
+  // or `draw` replies with only an `error` (server/room.ts does not
+  // broadcast on a refusal), and keying this on `view` left `busy` — and so
+  // the whole hand — stuck true forever after exactly one refusal, since
+  // nothing else on your own turn produces a new `state`.
   useEffect(() => {
     setBusy(false);
-  }, [view]);
+  }, [seq]);
 
   // A card arriving in this hand — drawn on the table, so it comes in over
   // the top edge, which is the direction the table is in. Driven by a diff
@@ -164,16 +181,32 @@ export function Phone() {
   }, [refusingId]);
 
   // The server refused the move: bring the card home and say so.
+  //
+  // Keyed on `seq`, not `error`: two identical refusals in a row hold the
+  // same string, useSyncExternalStore bails on that with Object.is, and an
+  // effect keyed on `error` itself would then simply never re-fire for the
+  // second one — no buzz, no reversed flight, indistinguishable from the
+  // throw having been silently ignored.
   useEffect(() => {
     if (!error) return;
     vibrateReject();
     // from/to stay as they were — CardFlight is positioned at `from` and
     // plays its keyframes backwards, so the card flies back in.
     setFlight((f) => (f && !f.reversed ? { ...f, reversed: true } : f));
-  }, [error]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seq]);
 
-  if (!session.getCode()) {
-    return <JoinScreen onJoin={(code, seat, name) => session.joinPlayer(code, seat, name)} />;
+  const invited = resolveInvite(invite, session.getCode());
+
+  if (!session.getCode() || invited) {
+    return (
+      <JoinScreen
+        initialCode={invited?.code ?? ''}
+        initialSeat={invited?.seat ?? 0}
+        initialName={lastName}
+        onJoin={(code, seat, name) => session.joinPlayer(code, seat, name)}
+      />
+    );
   }
 
   if (!player) {
@@ -222,16 +255,34 @@ export function Phone() {
   /**
    * A carried card was let go. Only a throw commits; anything else puts the
    * card back, which is the whole cancel gesture.
+   *
+   * Shakes the same card twice in a row without a flicker: setting the same
+   * id twice is a no-op re-render (Object.is bails), so the CSS animation
+   * would never restart for a repeated refusal of the same card. flushSync
+   * forces a real intermediate render with no card refusing, so the second
+   * `is-refusing` is a genuine mount rather than an unchanged one.
    */
+  function shake(cardId: string): void {
+    vibrateReject();
+    flushSync(() => setRefusingId(null));
+    setRefusingId(cardId);
+  }
+
   const handleThrow = (cardId: string, outcome: Throw) => {
     setCarried(null);
     setArmed(null);
-    if (outcome === 'return' || busy) return;
+    if (outcome === 'return') return;
+    if (busy) {
+      // A legal throw that lands mid round-trip is a real, deliberate move,
+      // not nothing — silently dropping it here (as `|| busy` used to)
+      // looked exactly like the gesture had been ignored.
+      shake(cardId);
+      return;
+    }
     if (outcome === 'refuse') {
       // The wash was already visibly dead, so this was deliberate. Say no out
       // loud rather than silently dropping the gesture.
-      vibrateReject();
-      setRefusingId(cardId);
+      shake(cardId);
       return;
     }
     commit(cardId, outcome);
@@ -345,10 +396,10 @@ export function Phone() {
 }
 
 /**
- * Shown only in portrait, by CSS alone.
+ * Shown only in landscape, by CSS alone.
  *
  * No orientation listener and no JS branch: a media query cannot get out of
- * step with the layout it is guarding, and the layout below it is landscape
+ * step with the layout it is guarding, and the layout below it is portrait
  * from top to bottom.
  */
 function RotateGate() {
@@ -357,7 +408,7 @@ function RotateGate() {
       <span className="rotate-gate__mark" aria-hidden="true">
         ⟳
       </span>
-      <p className="rotate-gate__text">Turn your phone sideways</p>
+      <p className="rotate-gate__text">Hold your phone upright</p>
     </div>
   );
 }

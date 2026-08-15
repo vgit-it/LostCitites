@@ -61,19 +61,8 @@ export function Card({
     .filter(Boolean)
     .join(' ');
 
-  return (
-    <button
-      type="button"
-      className={className}
-      style={{ '--colour': `var(--colour-${card.colour})` } as React.CSSProperties}
-      disabled={!interactive}
-      aria-label={label}
-      title={title ?? label}
-      // undefined, not false: a table card is not a toggle, and `false`
-      // would announce it as an unpressed one.
-      aria-pressed={selected ? true : undefined}
-      onClick={interactive ? onClick : undefined}
-    >
+  const face = (
+    <>
       <span className="card__mark" aria-hidden="true">
         {COLOUR_MARK[card.colour]}
       </span>
@@ -84,6 +73,48 @@ export function Card({
         {card.value === 'wager' ? '✦' : card.value}
       </span>
       <span className="card__value">{card.value === 'wager' ? '✦' : card.value}</span>
+    </>
+  );
+
+  // A card with nowhere to send a click is not a form control — it is a
+  // picture of a card that a pointer gesture elsewhere (Hand's own
+  // pointerdown, the table's reach) picks up by hit-testing the DOM, never
+  // by receiving focus or a click. A <button disabled> here bought nothing
+  // and cost the one thing every card in the app is today: dimmed hand
+  // cards, table columns, discard piles — all of it renders through this
+  // branch, since nothing in this codebase currently passes onClick.
+  if (!interactive) {
+    return (
+      <div
+        className={className}
+        style={{ '--colour': `var(--colour-${card.colour})` } as React.CSSProperties}
+        aria-label={label}
+        title={title ?? label}
+        // undefined, not false: a table card is not a toggle, and `false`
+        // would announce it as an unpressed one. Carried on the div branch
+        // too — selection state is orthogonal to whether this render has an
+        // onClick to fire, e.g. a carried phone card is selected and has
+        // nowhere to send a click at the same time.
+        aria-pressed={selected ? true : undefined}
+      >
+        {face}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className={className}
+      style={{ '--colour': `var(--colour-${card.colour})` } as React.CSSProperties}
+      aria-label={label}
+      title={title ?? label}
+      // undefined, not false: a table card is not a toggle, and `false`
+      // would announce it as an unpressed one.
+      aria-pressed={selected ? true : undefined}
+      onClick={onClick}
+    >
+      {face}
     </button>
   );
 }

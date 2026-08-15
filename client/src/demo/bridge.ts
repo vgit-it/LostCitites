@@ -8,8 +8,8 @@
 //
 // Why iframes at all, when three panes could be three React trees on one
 // page: media queries and viewport units resolve against the *window*. A
-// portrait-shaped phone pane on a desktop would pick up .hand--fan's
-// landscape branch and size 100svh to the desktop's height, so the harness
+// phone pane on a desktop window would pick up .rotate-gate's landscape
+// branch regardless of the pane's own width and height, so the harness
 // would be showing something the phone never shows. An iframe is a real
 // viewport. It also means a pane and a standalone route run identical code.
 // ============================================================

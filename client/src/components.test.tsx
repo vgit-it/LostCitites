@@ -4,14 +4,15 @@
 // no mocking — which is the point of keeping them presentational.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { Card as CardModel, Colour, PublicPlayerView, TableView } from '@shared/types';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { Card as CardModel, Colour, PlayerView, PublicPlayerView, TableView } from '@shared/types';
 import { Card } from './shared/Card';
 import { Column } from './table/Column';
 import { profilePoints } from './table/ElevationProfile';
 import { DiscardRow, deckUrgency } from './table/DiscardRow';
 import { PlayerBreakdown } from './table/RoundEnd';
 import { Hand, drawnCardId, sortHand } from './phone/Hand';
+import { perRow } from './phone/handRows';
 import {
   FLICK_V,
   MAX_TILT_DEG,
@@ -29,8 +30,18 @@ import { HandActions } from './phone/HandActions';
 import { expeditionHint, placementWeight, throwLabel } from './phone/columnRead';
 import { CardFlight } from './shared/CardFlight';
 import { centreOf, edgeOfSeat, edgeRect } from './shared/flightPath';
+import { Invite, joinUrl, parseInvite, resolveInvite } from './shared/invite';
 import { columnExtent, columnMetrics, sideMetrics } from './table/columnMetrics';
 import { planFlight } from './table/flights';
+import { JoinCode } from './table/JoinCode';
+import { qrMatrix, qrPath } from './table/qrCode';
+import { Lane, SeatInvite, SeatPlate, SeatSlot } from './table/Table';
+import { JoinScreen } from './phone/JoinScreen';
+import { Phone } from './phone/Phone';
+import { createInMemoryRejoinStore } from './session/rejoinStore';
+import { createSessionStore } from './session/session';
+import { FakeSocket } from './session/testDoubles';
+import { SessionProvider } from './session/useSession';
 import {
   canVibrate,
   resetVibrateThrottle,
@@ -127,6 +138,109 @@ describe('Column', () => {
   });
 });
 
+describe('a lane: a column and its own live score', () => {
+  it('shows no score for an unstarted column', () => {
+    const { container } = render(<Column colour="white" cards={[]} direction="down" />);
+    // Lane itself isn't rendered here — this pins the source Lane reads:
+    // an empty column has nothing for scoreExpedition to be asked about.
+    expect(container.querySelector('.lane__score')).toBeNull();
+  });
+
+  it('labels a losing column with its negative score', () => {
+    const { container } = render(
+      <Lane colour="blue" cards={[num('blue', 9)]} direction="down" arrivingId={null} />,
+    );
+    // (9 - 20) * 1 = -11 — a lone low card starting a column always loses.
+    const score = container.querySelector('.lane__score');
+    expect(score?.textContent).toBe('-11');
+    expect(score?.className).toContain('is-negative');
+  });
+
+  it('signs a winning column, and drops the negative class', () => {
+    const { container } = render(
+      <Lane
+        colour="blue"
+        cards={[num('blue', 10), num('blue', 9), num('blue', 8)]}
+        direction="down"
+        arrivingId={null}
+      />,
+    );
+    // (10+9+8 - 20) * 1 = 7
+    const score = container.querySelector('.lane__score');
+    expect(score?.textContent).toBe('+7');
+    expect(score?.className).not.toContain('is-negative');
+  });
+
+  it('carries the top/bottom class through to the lane itself', () => {
+    const { container: top } = render(
+      <Lane colour="red" cards={[num('red', 5)]} direction="up" arrivingId={null} />,
+    );
+    expect(top.querySelector('.lane')?.className).toContain('lane--top');
+
+    const { container: bottom } = render(
+      <Lane colour="red" cards={[num('red', 5)]} direction="down" arrivingId={null} />,
+    );
+    expect(bottom.querySelector('.lane')?.className).toContain('lane--bottom');
+  });
+});
+
+describe('a seat plate: the player at the edge of their own side', () => {
+  function seatPlayer(overrides: Partial<PublicPlayerView> = {}): PublicPlayerView {
+    return {
+      seat: 0,
+      name: 'Paul',
+      connected: true,
+      handCount: 8,
+      expeditions: { yellow: [], blue: [], white: [], green: [], red: [] },
+      roundScores: [10, -5],
+      currentRoundScore: 3,
+      ...overrides,
+    };
+  }
+
+  it('shows the running total, not just the current round', () => {
+    const { container } = render(
+      <SeatPlate player={seatPlayer()} active={false} phase="place" flipped={false} />,
+    );
+    // 10 + -5 + 3 = 8
+    expect(container.querySelector('.seat-plate__score')?.textContent).toBe('8');
+  });
+
+  it('names the phase and hand size only for the player whose turn it is', () => {
+    const { container: waiting } = render(
+      <SeatPlate player={seatPlayer()} active={false} phase="place" flipped={false} />,
+    );
+    expect(waiting.querySelector('.seat-plate__turn')).toBeNull();
+    expect(waiting.querySelector('.seat-plate')?.className).not.toContain('is-active');
+
+    const { container: active } = render(
+      <SeatPlate player={seatPlayer()} active phase="draw" flipped={false} />,
+    );
+    expect(active.querySelector('.seat-plate__turn')?.textContent).toContain('Drawing a card');
+    expect(active.querySelector('.seat-plate__turn')?.textContent).toContain('8 in hand');
+    expect(active.querySelector('.seat-plate')?.className).toContain('is-active');
+  });
+
+  it('carries the flip class only for the player sitting opposite', () => {
+    const { container: near } = render(
+      <SeatPlate player={seatPlayer()} active={false} phase="place" flipped={false} />,
+    );
+    expect(near.querySelector('.seat-plate')?.className).not.toContain('seat-plate--flipped');
+
+    const { container: far } = render(
+      <SeatPlate player={seatPlayer()} active={false} phase="place" flipped />,
+    );
+    expect(far.querySelector('.seat-plate')?.className).toContain('seat-plate--flipped');
+  });
+
+  it('says so when the player has dropped', () => {
+    const { container } = render(
+      <SeatPlate player={seatPlayer({ connected: false })} active={false} phase="place" flipped={false} />,
+    );
+    expect(container.querySelector('.seat-plate__offline')).toBeTruthy();
+  });
+});
+
 describe('deck urgency', () => {
   it('turns amber below 10 and red below 5', () => {
     expect(deckUrgency(44)).toBe('normal');
@@ -159,6 +273,26 @@ describe('hand ordering', () => {
       'blue-2',
       'blue-9',
     ]);
+  });
+});
+
+describe('how the hand wraps into rows', () => {
+  it('stays one row up to four cards', () => {
+    expect(perRow(1)).toBe(1);
+    expect(perRow(4)).toBe(4);
+  });
+
+  it('balances a five-through-eight card hand across two rows', () => {
+    // HAND_SIZE is 8 (shared/types.ts), so these are the counts a real hand
+    // ever reaches: never front-loaded, e.g. 7 is 4-then-3, not 8-then(-1).
+    expect(perRow(5)).toBe(3);
+    expect(perRow(6)).toBe(3);
+    expect(perRow(7)).toBe(4);
+    expect(perRow(8)).toBe(4);
+  });
+
+  it('never divides by zero for an empty hand', () => {
+    expect(perRow(0)).toBe(0);
   });
 });
 
@@ -288,6 +422,40 @@ describe('the hand', () => {
     expect(onThrow).toHaveBeenLastCalledWith('blue-2', 'refuse');
   });
 
+  it('keeps a second thumb landing mid-throw from stealing or interrupting the carry', () => {
+    // The phone is held in two hands; a second thumb touching the row while
+    // the first is mid-throw is the default grip, not an edge case.
+    const onThrow = vi.fn();
+    const { container } = render(
+      <Hand
+        cards={[num('blue', 2), num('red', 5)]}
+        legalPlacements={{ 'blue-2': ['discard', 'expedition'], 'red-5': ['discard', 'expedition'] }}
+        onThrow={onThrow}
+      />,
+    );
+
+    const list = container.querySelector('.hand') as HTMLElement;
+    stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
+    fireEvent.pointerDown(list, { clientX: 0, clientY: 200, button: 0, timeStamp: 0, pointerId: 1 });
+
+    // A second finger lands on a different card entirely.
+    stubElementFromPoint(() => container.querySelector('[data-card-id="red-5"]'));
+    fireEvent.pointerDown(list, { clientX: 300, clientY: 200, button: 0, timeStamp: 5, pointerId: 2 });
+
+    // The second finger lifts first — it never started anything, so nothing
+    // fires for it.
+    fireEvent.pointerUp(list, { clientX: 300, clientY: 200, pointerId: 2 });
+    expect(onThrow).not.toHaveBeenCalled();
+
+    // The first finger, which actually owns the carry, throws blue-2 right.
+    stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
+    fireEvent.pointerMove(list, { clientX: THROW_DX + 20, clientY: 200, timeStamp: 400, pointerId: 1 });
+    fireEvent.pointerUp(list, { clientX: THROW_DX + 20, clientY: 200, pointerId: 1 });
+
+    expect(onThrow).toHaveBeenCalledTimes(1);
+    expect(onThrow).toHaveBeenLastCalledWith('blue-2', 'expedition');
+  });
+
   it('puts a card back when it is pressed and simply let go', () => {
     // Distance only. jsdom stamps its own clock on every event — the
     // timeStamp passed to fireEvent is discarded — so a release velocity
@@ -325,6 +493,32 @@ describe('the hand', () => {
     fireEvent.pointerCancel(list, { clientX: THROW_DX + 60, clientY: 200 });
 
     expect(onThrow).toHaveBeenLastCalledWith('blue-2', 'return');
+  });
+
+  it('returns the card if pointer capture is lost mid-carry', () => {
+    // No onLostPointerCapture handler and no window-level fallback meant a
+    // dropped capture — a native drag stealing it, or a browser dropping it
+    // during the ~60x/s re-render the follow loop drives — left the gesture
+    // stuck 'carrying' forever: the rAF loop kept running and the card hung
+    // under a finger that was no longer there.
+    const onThrow = vi.fn();
+    const { container } = render(
+      <Hand
+        cards={[num('blue', 2)]}
+        legalPlacements={{ 'blue-2': ['discard', 'expedition'] }}
+        onThrow={onThrow}
+      />,
+    );
+
+    const list = container.querySelector('.hand') as HTMLElement;
+    stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
+
+    fireEvent.pointerDown(list, { clientX: 0, clientY: 200, button: 0, timeStamp: 0 });
+    fireEvent.pointerMove(list, { clientX: THROW_DX + 60, clientY: 200, timeStamp: 60 });
+    fireEvent.lostPointerCapture(list, { clientX: THROW_DX + 60, clientY: 200 });
+
+    expect(onThrow).toHaveBeenLastCalledWith('blue-2', 'return');
+    expect(list.className).not.toContain('is-carrying');
   });
 
   it('ignores a press that lands between cards', () => {
@@ -372,6 +566,129 @@ describe('the hand', () => {
   });
 });
 
+
+describe('Phone: a refused move must not brick the hand', () => {
+  function stubPlayerView(overrides: Partial<PlayerView> = {}): PlayerView {
+    return {
+      viewer: 'player',
+      seat: 0,
+      round: 1,
+      stage: 'playing',
+      deckCount: 44,
+      discardTops: { yellow: null, blue: null, white: null, green: null, red: null },
+      turn: 0,
+      phase: 'place',
+      readyForNextRound: [false, false],
+      hand: [],
+      legalPlacements: {},
+      legalDrawSources: [],
+      blockedDrawCardId: null,
+      players: [
+        {
+          seat: 0,
+          name: 'Paul',
+          connected: true,
+          handCount: 8,
+          expeditions: { yellow: [], blue: [], white: [], green: [], red: [] },
+          roundScores: [],
+          currentRoundScore: 0,
+        },
+        {
+          seat: 1,
+          name: 'Aditi',
+          connected: true,
+          handCount: 8,
+          expeditions: { yellow: [], blue: [], white: [], green: [], red: [] },
+          roundScores: [],
+          currentRoundScore: 0,
+        },
+      ],
+      ...overrides,
+    };
+  }
+
+  /** Press a card by id, drag it right past THROW_DX, let go. */
+  function throwRight(container: HTMLElement, cardId: string): void {
+    const list = container.querySelector('.hand') as HTMLElement;
+    stubElementFromPoint(() => container.querySelector(`[data-card-id="${cardId}"]`));
+    fireEvent.pointerDown(list, { clientX: 0, clientY: 200, button: 0, timeStamp: 0 });
+    fireEvent.pointerMove(list, { clientX: THROW_DX + 20, clientY: 200, timeStamp: 400 });
+    fireEvent.pointerUp(list, { clientX: THROW_DX + 20, clientY: 200 });
+  }
+
+  // This is the deadlock reported against the real app: a rejected `place`
+  // replies with only an `error` — server/room.ts does not broadcast on a
+  // refusal — and the phone had nothing but a fresh `view` to clear `busy`.
+  // One refusal, ever, and the hand never accepted another throw.
+  it('accepts a second throw after the server refuses the first', () => {
+    const socket = new FakeSocket();
+    const store = createSessionStore(socket, createInMemoryRejoinStore());
+    const { container } = render(
+      <SessionProvider store={store}>
+        <Phone />
+      </SessionProvider>,
+    );
+    // A device with no membership shows the join screen regardless of what
+    // state arrives — join first, the way a real phone would. socket.deliver
+    // and joinPlayer both push a synchronous update through
+    // useSyncExternalStore from outside a React event handler, so each is
+    // wrapped in act() the way the render it triggers needs.
+    act(() => store.joinPlayer('417', 0, 'Paul'));
+
+    act(() =>
+      socket.deliver({
+        t: 'state',
+        view: stubPlayerView({
+          hand: [{ id: 'blue-2', colour: 'blue', value: 2 }],
+          legalPlacements: { 'blue-2': ['discard', 'expedition'] },
+        }),
+      }),
+    );
+
+    throwRight(container, 'blue-2');
+    expect(socket.sent).toContainEqual({ t: 'place', cardId: 'blue-2', target: 'expedition' });
+
+    // The server refuses it. No accompanying state — exactly what a real
+    // refusal looks like (server/room.ts:90 replies sendError and returns
+    // without broadcasting), and exactly why keying the busy flag on `view`
+    // alone bricks the phone: on your own turn, nothing else produces a new
+    // `state` until the opponent moves, so there is nothing left to clear it.
+    act(() => socket.deliver({ t: 'error', message: 'Blue 2 is too low.' }));
+
+    throwRight(container, 'blue-2');
+    expect(socket.sent.filter((m) => m.t === 'place')).toHaveLength(2);
+  });
+
+  // Two identical refusals in a row must both be felt — the second one is
+  // exactly where a `useEffect` keyed on the error string, rather than a
+  // reply counter, would silently stop firing.
+  it('reacts to a repeated identical refusal, not just the first one', () => {
+    const socket = new FakeSocket();
+    const store = createSessionStore(socket, createInMemoryRejoinStore());
+    render(
+      <SessionProvider store={store}>
+        <Phone />
+      </SessionProvider>,
+    );
+    act(() => store.joinPlayer('417', 0, 'Paul'));
+
+    act(() =>
+      socket.deliver({
+        t: 'state',
+        view: stubPlayerView({
+          hand: [{ id: 'blue-2', colour: 'blue', value: 2 }],
+          legalPlacements: { 'blue-2': ['discard', 'expedition'] },
+        }),
+      }),
+    );
+
+    act(() => socket.deliver({ t: 'error', message: 'Blue 2 is too low.' }));
+    expect(store.getSeq()).toBe(2); // one state, one error
+
+    act(() => socket.deliver({ t: 'error', message: 'Blue 2 is too low.' }));
+    expect(store.getSeq()).toBe(3);
+  });
+});
 
 describe('reading a column back', () => {
   it('names the cost of starting a column before the card leaves', () => {
@@ -758,12 +1075,13 @@ describe('what a throw meant', () => {
 });
 
 describe('the gesture machine', () => {
-  const press = { t: 'down', cardId: 'blue-2', x: 100, y: 300, at: 0 } as const;
+  const press = { t: 'down', cardId: 'blue-2', pointerId: 1, x: 100, y: 300, at: 0 } as const;
 
   it('carries a card from the moment it is pressed', () => {
     const state = gestureReducer(initialGesture, press);
     expect(state.phase).toBe('carrying');
     expect(state.cardId).toBe('blue-2');
+    expect(state.pointerId).toBe(1);
     expect(dragOf(state)).toEqual({ x: 0, y: 0 });
   });
 
@@ -774,29 +1092,65 @@ describe('the gesture machine', () => {
 
   it('tracks the finger and remembers where it started', () => {
     let state = gestureReducer(initialGesture, press);
-    state = gestureReducer(state, { t: 'move', x: 160, y: 280, at: 30 });
+    state = gestureReducer(state, { t: 'move', pointerId: 1, x: 160, y: 280, at: 30 });
     expect(dragOf(state)).toEqual({ x: 60, y: -20 });
   });
 
   it('collects samples to judge the release by', () => {
     let state = gestureReducer(initialGesture, press);
-    state = gestureReducer(state, { t: 'move', x: 130, y: 300, at: 30 });
-    state = gestureReducer(state, { t: 'move', x: 190, y: 300, at: 60 });
+    state = gestureReducer(state, { t: 'move', pointerId: 1, x: 130, y: 300, at: 30 });
+    state = gestureReducer(state, { t: 'move', pointerId: 1, x: 190, y: 300, at: 60 });
 
     expect(velocityFrom(state.samples)).toBeGreaterThan(0);
   });
 
   it('ignores movement when nothing is being carried', () => {
-    const state = gestureReducer(initialGesture, { t: 'move', x: 500, y: 0, at: 10 });
+    const state = gestureReducer(initialGesture, { t: 'move', pointerId: 1, x: 500, y: 0, at: 10 });
     expect(state).toBe(initialGesture);
   });
 
   it('lets go completely, so nothing carries into the next gesture', () => {
     let state = gestureReducer(initialGesture, press);
-    state = gestureReducer(state, { t: 'move', x: 400, y: 100, at: 40 });
+    state = gestureReducer(state, { t: 'move', pointerId: 1, x: 400, y: 100, at: 40 });
 
-    expect(gestureReducer(state, { t: 'up' })).toEqual(initialGesture);
-    expect(gestureReducer(state, { t: 'cancel' })).toEqual(initialGesture);
+    expect(gestureReducer(state, { t: 'up', pointerId: 1 })).toEqual(initialGesture);
+    expect(gestureReducer(state, { t: 'cancel', pointerId: 1 })).toEqual(initialGesture);
+  });
+});
+
+describe('a second finger must not steal or interrupt a carry', () => {
+  const press = { t: 'down', cardId: 'blue-2', pointerId: 1, x: 100, y: 300, at: 0 } as const;
+
+  it('ignores a second down while one pointer is already carrying', () => {
+    const carrying = gestureReducer(initialGesture, press);
+    const after = gestureReducer(carrying, {
+      t: 'down',
+      cardId: 'red-5',
+      pointerId: 2,
+      x: 400,
+      y: 300,
+      at: 10,
+    });
+    expect(after).toBe(carrying);
+  });
+
+  it('ignores a move from a pointer that never started the carry', () => {
+    const carrying = gestureReducer(initialGesture, press);
+    const after = gestureReducer(carrying, { t: 'move', pointerId: 2, x: 500, y: 0, at: 20 });
+    expect(after).toBe(carrying);
+  });
+
+  it('ignores an up or cancel from a foreign pointer, without resetting the carry', () => {
+    const carrying = gestureReducer(initialGesture, press);
+    expect(gestureReducer(carrying, { t: 'up', pointerId: 2 })).toBe(carrying);
+    expect(gestureReducer(carrying, { t: 'cancel', pointerId: 2 })).toBe(carrying);
+  });
+
+  it('still lets go on the owning pointer once the foreign one has come and gone', () => {
+    let state = gestureReducer(initialGesture, press);
+    state = gestureReducer(state, { t: 'down', cardId: 'red-5', pointerId: 2, x: 400, y: 300, at: 10 });
+    state = gestureReducer(state, { t: 'up', pointerId: 2 });
+    expect(gestureReducer(state, { t: 'up', pointerId: 1 })).toEqual(initialGesture);
   });
 });
 
@@ -935,6 +1289,27 @@ describe('the discard row', () => {
     reach(container.querySelector('[data-pile="green"]') as HTMLElement, 120);
     expect(onDraw).not.toHaveBeenCalled();
     expect(container.querySelector('.discard-row')?.className).not.toContain('is-armed');
+  });
+
+  it('draws the deck as a stack of backs, and keeps the anchor addressable', () => {
+    const { container } = render(<DiscardRow deckCount={44} discardTops={noTops} />);
+
+    const deck = container.querySelector('[data-deck]');
+    expect(deck).toBeTruthy();
+    expect(deck?.querySelectorAll('.card--back').length).toBeGreaterThan(0);
+    // Capped at 3 for depth, however many cards are actually left.
+    expect(deck?.querySelectorAll('.card--back').length).toBeLessThanOrEqual(3);
+    expect(deck?.querySelector('.deck__count')?.textContent).toBe('44');
+    expect(deck?.className).toContain('deck--normal');
+  });
+
+  it('shows no backs once the deck is empty, count included', () => {
+    const { container } = render(<DiscardRow deckCount={0} discardTops={noTops} />);
+
+    const deck = container.querySelector('[data-deck]');
+    expect(deck?.querySelectorAll('.card--back').length).toBe(0);
+    expect(deck?.querySelector('.deck__count')?.textContent).toBe('0');
+    expect(deck?.className).toContain('deck--critical');
   });
 
   it('draws the pile that was pulled toward the player on turn', () => {
@@ -1116,7 +1491,154 @@ describe('planning a card’s journey across the table', () => {
   });
 });
 
+describe('the join link', () => {
+  const location = { origin: 'http://192.168.1.5:3001', pathname: '/table' };
 
+  it('encodes the room and the seat, and swaps the table path for the phone one', () => {
+    expect(joinUrl(location, { code: '417', seat: 0 })).toBe(
+      'http://192.168.1.5:3001/play?code=417&seat=0',
+    );
+  });
+
+  it('round-trips through parseInvite for both seats', () => {
+    for (const seat of [0, 1] as const) {
+      const invite: Invite = { code: '417', seat };
+      expect(parseInvite(new URL(joinUrl(location, invite)).search)).toEqual(invite);
+    }
+  });
+
+  it('keeps a subpath install’s prefix, so a PR preview still produces a working link', () => {
+    const url = joinUrl({ origin: 'http://x', pathname: '/preview-42/table' }, { code: '417', seat: 1 });
+    expect(url).toBe('http://x/preview-42/play?code=417&seat=1');
+  });
+
+  it('refuses a missing, short, or leading-zero code rather than guess', () => {
+    expect(parseInvite('')).toBeNull();
+    expect(parseInvite('?code=12&seat=0')).toBeNull();
+    expect(parseInvite('?code=099&seat=0')).toBeNull();
+    expect(parseInvite('?code=abc&seat=0')).toBeNull();
+  });
+
+  it('refuses a missing or out-of-range seat', () => {
+    expect(parseInvite('?code=417')).toBeNull();
+    expect(parseInvite('?code=417&seat=2')).toBeNull();
+  });
+});
+
+describe('which invite wins', () => {
+  it('lets a scanned link for a different room override a stored membership', () => {
+    expect(resolveInvite({ code: '417', seat: 0 }, '512')).toEqual({ code: '417', seat: 0 });
+  });
+
+  it('is a no-op for the room this device already joined — re-scanning just resumes', () => {
+    expect(resolveInvite({ code: '417', seat: 0 }, '417')).toBeNull();
+  });
+
+  it('is a no-op with nothing scanned', () => {
+    expect(resolveInvite(null, '417')).toBeNull();
+  });
+});
+
+describe('a QR, as data', () => {
+  it('produces a square matrix with the three finder patterns in the corners', () => {
+    const matrix = qrMatrix('http://192.168.1.5:3001/play?code=417&seat=0');
+
+    expect(matrix.length).toBeGreaterThanOrEqual(21);
+    expect(matrix.length % 2).toBe(1); // QR versions are always odd-sized
+    for (const row of matrix) expect(row).toHaveLength(matrix.length);
+
+    // The outer ring of each 7x7 finder square is a solid line — enough to
+    // tell this is a real code and not noise, without shipping a decoder.
+    const n = matrix.length;
+    expect(matrix[0].slice(0, 7).every(Boolean)).toBe(true); // top-left
+    expect(matrix[0].slice(n - 7).every(Boolean)).toBe(true); // top-right
+    expect(matrix[n - 1].slice(0, 7).every(Boolean)).toBe(true); // bottom-left
+  });
+
+  it('turns a hand-checked matrix into the expected path and viewBox', () => {
+    const matrix = [
+      [true, false, true],
+      [false, true, false],
+      [true, false, true],
+    ];
+    expect(qrPath(matrix, 1)).toEqual({
+      d: 'M1 1h1v1h-1zM3 1h1v1h-1zM2 2h1v1h-1zM1 3h1v1h-1zM3 3h1v1h-1z',
+      size: 5,
+    });
+  });
+
+  it('draws nothing for an all-light matrix, not a broken path', () => {
+    expect(qrPath([[false, false], [false, false]]).d).toBe('');
+  });
+});
+
+describe('the join code, drawn', () => {
+  it('renders as a named, decodable image', () => {
+    render(<JoinCode url="http://x/play?code=417&seat=0" label="Scan to join as seat 1" />);
+    const svg = screen.getByRole('img', { name: 'Scan to join as seat 1' });
+    expect(svg.querySelector('path')?.getAttribute('d')).toBeTruthy();
+  });
+});
+
+describe('a seat slot in the lobby', () => {
+  const invites: SeatInvite[] = [
+    { seat: 0, url: 'http://x/play?code=417&seat=0' },
+    { seat: 1, url: 'http://x/play?code=417&seat=1' },
+  ];
+
+  it('shows a QR for an empty seat that has one', () => {
+    render(<SeatSlot seat={0} invites={invites} />);
+    expect(screen.getByRole('img', { name: /seat 1/i })).toBeTruthy();
+  });
+
+  it('shows the player’s name instead once they are connected, never both', () => {
+    render(<SeatSlot seat={0} name="Paul" invites={invites} />);
+    expect(screen.getByText('Paul')).toBeTruthy();
+    expect(screen.queryByRole('img')).toBeNull();
+  });
+
+  it('falls back to plain waiting text when no invites were given', () => {
+    // The demo's table has no /play route to send anyone to.
+    render(<SeatSlot seat={1} />);
+    expect(screen.getByText(/seat 2 — waiting/i)).toBeTruthy();
+    expect(screen.queryByRole('img')).toBeNull();
+  });
+});
+
+describe('the join screen', () => {
+  function codeInput(container: HTMLElement) {
+    return container.querySelector<HTMLInputElement>('.join__code')!;
+  }
+  function nameInput(container: HTMLElement) {
+    return container.querySelector<HTMLInputElement>('.join__name')!;
+  }
+
+  it('starts blank and focuses the code field, with nothing yet to send', () => {
+    const { container } = render(<JoinScreen onJoin={vi.fn()} />);
+    expect(codeInput(container).value).toBe('');
+    expect(document.activeElement).toBe(codeInput(container));
+    expect((screen.getByRole('button', { name: 'Join' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('prefills from a scanned invite, focuses the name, and joins on submit with just a name typed', () => {
+    const onJoin = vi.fn();
+    const { container } = render(<JoinScreen initialCode="417" initialSeat={1} onJoin={onJoin} />);
+
+    expect(codeInput(container).value).toBe('417');
+    expect(document.activeElement).toBe(nameInput(container));
+    expect(screen.getByRole('button', { name: 'Seat 2' }).className).toContain('is-selected');
+
+    fireEvent.change(nameInput(container), { target: { value: 'Paul' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Join' }));
+
+    expect(onJoin).toHaveBeenCalledWith('417', 1, 'Paul');
+  });
+
+  it('offers a remembered name as a default, editable like any other field', () => {
+    const { container } = render(<JoinScreen initialName="Paul" onJoin={vi.fn()} />);
+    expect(nameInput(container).value).toBe('Paul');
+  });
+});
 
 describe('haptics', () => {
   afterEach(() => {

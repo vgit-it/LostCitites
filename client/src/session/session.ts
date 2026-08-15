@@ -27,6 +27,13 @@ export interface SessionStore {
   dismissError(): void;
   /** The code this device is using, once it has joined. */
   getCode(): string | null;
+  /**
+   * Bumped on every `state` and `error` reply from the server — a rejection
+   * is as much a reply as a state. A component that only reacts to `getView`
+   * changing has no signal a refusal ever happened at all, since `error`
+   * alone can repeat the same string twice in a row and nothing else moves.
+   */
+  getSeq(): number;
 
   subscribe(listener: () => void): () => void;
   onTableEvent(handler: (event: TableEvent) => void): () => void;
@@ -48,6 +55,7 @@ export function createSessionStore(socket: SocketClient, rejoin: RejoinStore): S
   let view: ClientView | null = null;
   let status: ConnectionStatus = socket.getStatus();
   let error: string | null = null;
+  let seq = 0;
   let membership: RejoinInfo | null = rejoin.load();
 
   function notify(): void {
@@ -81,9 +89,11 @@ export function createSessionStore(socket: SocketClient, rejoin: RejoinStore): S
       case 'state':
         view = message.view;
         error = null;
+        seq += 1;
         return notify();
       case 'error':
         error = message.message;
+        seq += 1;
         return notify();
       case 'event':
         // Deliberately does not touch `view`.
@@ -104,6 +114,7 @@ export function createSessionStore(socket: SocketClient, rejoin: RejoinStore): S
     getStatus: () => status,
     getError: () => error,
     getCode: () => membership?.code ?? null,
+    getSeq: () => seq,
 
     dismissError() {
       if (error === null) return;
