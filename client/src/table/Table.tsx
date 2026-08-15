@@ -7,8 +7,22 @@ import { COLOURS, TableView } from '@shared/types';
 import { useClientView, useConnectionStatus, useSession } from '../session/useSession';
 import { useWakeLock } from '../platform/wakeLock';
 import { Column } from './Column';
+import { ColumnMetrics, sideMetrics } from './columnMetrics';
 import { DiscardRow } from './DiscardRow';
 import { MatchEnd, RoundEnd } from './RoundEnd';
+
+/**
+ * The two numbers the CSS needs to size a side's cards, as custom properties.
+ *
+ * Fractions rather than lengths: the side's own height arrives in the CSS as
+ * 100cqh, so nothing here has to know a pixel.
+ */
+function sideStyle(metrics: ColumnMetrics): React.CSSProperties {
+  return {
+    '--card-frac': metrics.cardFraction.toFixed(4),
+    '--show': metrics.show.toFixed(4),
+  } as React.CSSProperties;
+}
 
 export function Table({ code }: { code: string }) {
   const session = useSession();
@@ -96,7 +110,15 @@ function Board({ view }: { view: TableView }) {
         </div>
       </header>
 
-      <section className="board__side board__side--top" aria-label={`${seat1.name} expeditions`}>
+      {/*
+        Each side is sized by its own longest column, so a player with a deep
+        expedition does not shrink the other's cards.
+      */}
+      <section
+        className="board__side board__side--top"
+        style={sideStyle(sideMetrics(COLOURS.map((c) => seat1.expeditions[c].length)))}
+        aria-label={`${seat1.name} expeditions`}
+      >
         {COLOURS.map((colour) => (
           <Column key={colour} colour={colour} cards={seat1.expeditions[colour]} direction="up" />
         ))}
@@ -106,6 +128,7 @@ function Board({ view }: { view: TableView }) {
 
       <section
         className="board__side board__side--bottom"
+        style={sideStyle(sideMetrics(COLOURS.map((c) => seat0.expeditions[c].length)))}
         aria-label={`${seat0.name} expeditions`}
       >
         {COLOURS.map((colour) => (

@@ -25,6 +25,7 @@ import { CardFlight } from './phone/CardFlight';
 import { DrawTargets } from './phone/DrawTargets';
 import { PlaceActions, expeditionHint, placementWeight } from './phone/PlaceActions';
 import { BoardStrip, topOf, wagersIn } from './phone/BoardStrip';
+import { columnExtent, columnMetrics, sideMetrics } from './table/columnMetrics';
 import { Tray } from './phone/Tray';
 import {
   canVibrate,
@@ -684,6 +685,55 @@ describe('round-end breakdown', () => {
     );
     expect(screen.getByText('× 3 + 20')).toBeTruthy();
     expect(screen.getAllByText('41')).toHaveLength(2); // column score and round total
+  });
+});
+
+describe('column metrics', () => {
+  // 12 is the deepest column this game can deal: three wagers plus 2..10.
+  const DEALABLE = Array.from({ length: 12 }, (_, i) => i + 1);
+
+  it('fits any dealable column into exactly one side-height', () => {
+    // The whole point. Card size and overlap used to be constants, so a
+    // column's height depended only on its card count and nothing tied it to
+    // the space available — a 3-card column came out 190px tall in a 128px
+    // band and spilled over the scores and the turn text.
+    for (const n of DEALABLE) {
+      expect(columnExtent(n, columnMetrics(n))).toBeCloseTo(1, 6);
+    }
+  });
+
+  it('keeps the card readable, tightening the stack instead', () => {
+    // Two regimes: shrink the card while it can still be read across a
+    // table, then stop and take the space out of the overlap.
+    for (const n of DEALABLE) {
+      expect(columnMetrics(n).cardFraction).toBeGreaterThanOrEqual(0.42);
+    }
+
+    const short = columnMetrics(3);
+    const long = columnMetrics(10);
+    expect(short.cardFraction).toBeGreaterThan(long.cardFraction);
+    expect(short.show).toBe(0.38); // untightened while the card can shrink
+    expect(long.show).toBeLessThan(short.show);
+    expect(long.cardFraction).toBe(0.42); // on the floor
+  });
+
+  it('gives a lone card the whole band', () => {
+    expect(columnMetrics(1).cardFraction).toBe(1);
+    expect(columnExtent(1, columnMetrics(1))).toBe(1);
+  });
+
+  it('sizes a side by its longest column, so all five read at one scale', () => {
+    expect(sideMetrics([1, 4, 0, 2, 3])).toEqual(columnMetrics(4));
+    // An untouched side still has to produce usable numbers.
+    expect(sideMetrics([0, 0, 0, 0, 0])).toEqual(columnMetrics(1));
+    expect(sideMetrics([])).toEqual(columnMetrics(1));
+  });
+
+  it('degrades by clipping rather than by overflowing, past what is dealable', () => {
+    // Unreachable in play, but the CSS clips this case instead of letting a
+    // column paint over the bars again.
+    expect(columnExtent(20, columnMetrics(20))).toBeGreaterThan(1);
+    expect(columnMetrics(20).show).toBe(0.12);
   });
 });
 
