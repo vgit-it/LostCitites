@@ -602,7 +602,7 @@
   display: none;
 }
 
-@media (orientation: portrait) {
+@media (orientation: landscape) {
   .rotate-gate {
     position: fixed;
     inset: 0;
@@ -712,48 +712,55 @@
 
 /* ---------- the hand ---------- */
 
-/* A plain row. The cards divide the width between them, so nothing has to be
-   measured and the size falls out of how many cards are left — a hand played
-   down to three cards gets three big cards.
+/* Cards divide the width of a row between them, so nothing has to be
+   measured and the size falls out of how many cards are in that row — a
+   hand played down to three cards gets three big cards.
 
-   Capped three ways: never wider than a comfortable card, never so tall it
-   runs past the screen (a landscape phone is short), and never wider than its
-   share of the row. */
+   Portrait, so the row wraps rather than staying flat: 8 cards across a
+   390px-wide phone is ~42px each — unreadable. handRows.ts decides how many
+   sit in the first row (never more than two rows in practice, since
+   HAND_SIZE is 8); the rest wraps under it. A hand played down to four or
+   fewer stays one row, which is what keeps the "short hand, big cards"
+   property this replaced.
+
+   Card width is capped three ways: never wider than a comfortable card,
+   never so tall two rows overflow what's left of the screen once the
+   headline and safe areas are out of it, and never wider than its share of
+   the row it's in. The height budget is svh rather than a container query:
+   .hand no longer needs container-type for anything else, and the actual
+   number is a documented approximation, checked against a real 390×844
+   viewport in Playwright rather than derived exactly — device chrome makes
+   an exact fraction unknowable from CSS alone. */
 .hand {
-  --hand-gap: 0.4rem;
+  --hand-gap: 0.5rem;
+  --row-budget: calc((46svh - var(--hand-gap)) / 2);
   --card-w: min(
     8rem,
-    calc(var(--hand-height) / 1.5),
-    calc((100vw - 1.5rem - (var(--hand-count, 8) - 1) * var(--hand-gap)) / var(--hand-count, 8))
+    calc(var(--row-budget) / 1.5),
+    calc((100% - (var(--per-row, 4) - 1) * var(--hand-gap)) / var(--per-row, 4))
   );
-  --hand-height: 74cqh;
 
   position: relative;
   /* Above the wash, so the carried card rides over its own highlight. */
   z-index: 2;
   display: flex;
+  flex-wrap: wrap;
   flex: 1;
   align-items: center;
+  align-content: center;
   justify-content: center;
   gap: var(--hand-gap);
   list-style: none;
   margin: 0;
-  padding: 0 0.75rem;
-  container-type: size;
+  padding: 0 1.25rem;
   /* A carried card leaves the row; the row must not clip it. */
   overflow: visible;
+  /* A vertical drag of the row itself is not a game action in portrait —
+     nothing here scrolls, and a stray overscroll must not bounce the page. */
+  overscroll-behavior: contain;
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
-}
-
-/* The container query unit above resolves against .hand itself, which is
-   only sized once it has been laid out. This is the fallback that gets the
-   first paint right. */
-@supports not (height: 1cqh) {
-  .hand {
-    --hand-height: 60svh;
-  }
 }
 
 /* 0,2,0 — beats .card--lg without !important. */

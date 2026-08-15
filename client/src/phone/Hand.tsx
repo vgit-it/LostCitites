@@ -26,6 +26,7 @@ import {
 } from '../shared/carry';
 import { Throw, armedSide, flickOutcome } from './throw';
 import { dragOf, gestureReducer, initialGesture } from './gesture';
+import { perRow } from './handRows';
 
 export interface HandProps {
   cards: CardModel[];
@@ -229,9 +230,16 @@ export function Hand({
       className={className}
       role="list"
       aria-label="Your hand"
-      // The row divides the width it has by the cards in it; there is no
-      // measuring and no fan geometry left to resolve.
-      style={{ '--hand-count': ordered.length } as React.CSSProperties}
+      // Each row divides the width it has by the cards in it; there is no
+      // measuring and no fan geometry left to resolve. --hand-count stays
+      // for anything keying off the whole hand's size; --per-row is what
+      // the CSS actually divides by.
+      style={
+        {
+          '--hand-count': ordered.length,
+          '--per-row': perRow(ordered.length) || 4,
+        } as React.CSSProperties
+      }
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}

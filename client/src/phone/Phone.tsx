@@ -1,4 +1,4 @@
-// The phone controller: a hand of cards, held sideways, and nothing else.
+// The phone controller: a hand of cards, held upright, and nothing else.
 //
 // No deck, no discards, no expedition columns. All of that is on the table
 // the player is already looking at, and putting a small copy of it here was
@@ -12,7 +12,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Card as CardModel, DrawSource, PlaceTarget, PlayerView, Seat } from '@shared/types';
 import { vibrateCommit, vibrateDraw, vibrateReject, vibrateTurnStart } from '../platform/vibrate';
 import { DRAW_FLIGHT_MS, SHAKE_MS } from '../platform/motion';
-import { useLandscapeLock } from '../platform/orientation';
+import { usePortraitLock } from '../platform/orientation';
 import { useWakeLock } from '../platform/wakeLock';
 import {
   useClientView,
@@ -82,7 +82,7 @@ export function Phone({
   const status = useConnectionStatus();
   const error = useSessionError();
   useWakeLock();
-  useLandscapeLock();
+  usePortraitLock();
 
   /** Set on send, cleared by the next view — stops a double throw. */
   const [busy, setBusy] = useState(false);
@@ -375,7 +375,7 @@ function RotateGate() {
       <span className="rotate-gate__mark" aria-hidden="true">
         ⟳
       </span>
-      <p className="rotate-gate__text">Turn your phone sideways</p>
+      <p className="rotate-gate__text">Hold your phone upright</p>
     </div>
   );
 }

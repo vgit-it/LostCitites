@@ -12,6 +12,7 @@ import { profilePoints } from './table/ElevationProfile';
 import { DiscardRow, deckUrgency } from './table/DiscardRow';
 import { PlayerBreakdown } from './table/RoundEnd';
 import { Hand, drawnCardId, sortHand } from './phone/Hand';
+import { perRow } from './phone/handRows';
 import {
   FLICK_V,
   MAX_TILT_DEG,
@@ -164,6 +165,26 @@ describe('hand ordering', () => {
       'blue-2',
       'blue-9',
     ]);
+  });
+});
+
+describe('how the hand wraps into rows', () => {
+  it('stays one row up to four cards', () => {
+    expect(perRow(1)).toBe(1);
+    expect(perRow(4)).toBe(4);
+  });
+
+  it('balances a five-through-eight card hand across two rows', () => {
+    // HAND_SIZE is 8 (shared/types.ts), so these are the counts a real hand
+    // ever reaches: never front-loaded, e.g. 7 is 4-then-3, not 8-then(-1).
+    expect(perRow(5)).toBe(3);
+    expect(perRow(6)).toBe(3);
+    expect(perRow(7)).toBe(4);
+    expect(perRow(8)).toBe(4);
+  });
+
+  it('never divides by zero for an empty hand', () => {
+    expect(perRow(0)).toBe(0);
   });
 });
 
