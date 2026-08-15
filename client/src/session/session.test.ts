@@ -13,6 +13,7 @@ function stubTableView(overrides: Partial<TableView> = {}): TableView {
     discardTops: { yellow: null, blue: null, white: null, green: null, red: null },
     turn: 0,
     phase: 'place',
+    legalDrawSources: [],
     readyForNextRound: [false, false],
     players: [
       {
