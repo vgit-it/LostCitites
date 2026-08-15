@@ -19,7 +19,9 @@ Open the printed LAN address on each device:
 | Tablet (landscape) | `/table` |
 | Each phone (landscape) | `/play` |
 
-The tablet shows a 3-digit room code; the phones type it in. For a
+The tablet shows a 3-digit room code, plus a QR per open seat — scan it and
+the phone lands on the join screen with the code and seat already filled in,
+just a name left to type. Typing the code by hand still works too. For a
 production run, `npm run build` then `npm start` serves everything from
 :3001 on a single port.
 
@@ -90,11 +92,11 @@ server/
 client/src/
   session/       socket -> rejoinStore -> session store -> useSession
   table/         Table, Column, DiscardRow, RoundEnd, ElevationProfile
-                 flights, drawGesture
+                 flights, drawGesture, qrCode, JoinCode
   phone/         Phone, JoinScreen, Hand, FlickZones, HandActions
                  gesture, throw, columnRead
   shared/        Card (the one card visual, used by both), CardFlight,
-                 flightPath, carry
+                 flightPath, carry, invite
   platform/      vibrate, wakeLock, orientation, motion — the only files
                  touching navigator / screen
 ```
@@ -117,7 +119,7 @@ places. Each is resolved in exactly one module:
 | No lobby-stage state constructor | `createInitialState()` | `server/initialState.ts` |
 | Nothing calls `advanceRound` | Both readies at `roundEnd` | `server/room.ts` |
 | `roundOver` / `matchOver` never emitted | Raised on the stage change | `server/room.ts` |
-| §5 has the server minting the room code, but the views carry no `code` field | The **tablet** generates and persists it, and sends it in `joinTable` | `client/src/main.tsx` |
+| §5 has the server minting the room code, but the views carry no `code` field | The **tablet** generates and persists it, sends it in `joinTable`, and builds the QR join links from its own `window.location` | `client/src/main.tsx`, `client/src/shared/invite.ts` |
 | Re-claiming an occupied seat | Replaces the old connection | `server/room.ts` |
 | A stale socket closing after a reconnect | Ignored unless it is still the bound one | `server/router.ts` |
 

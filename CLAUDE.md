@@ -56,10 +56,12 @@ client/src/
   session/       socket -> rejoinStore -> session store -> useSession hook
   table/         Table, Column, DiscardRow, RoundEnd, ElevationProfile
                  flights, drawGesture — cards arriving, and the one reach
+                 qrCode, JoinCode — the lobby's per-seat QR
   phone/         Phone, JoinScreen, Hand, FlickZones, HandActions
                  gesture, throw, columnRead — the carry and what it meant
   shared/        Card.tsx (the one card visual, used by both), CardFlight,
                  flightPath, carry — the arithmetic of a card in the air
+                 invite — the join URL, written by the tablet and read by the phone
   platform/      vibrate, wakeLock, orientation, motion — the only files
                  touching `navigator` / `screen`
   demo/          the server, running in the browser (see below)
@@ -151,7 +153,7 @@ re-litigate elsewhere:
 | No lobby-stage state constructor | `createInitialState()` | `server/initialState.ts` |
 | Nothing calls `advanceRound` | Both readies at `roundEnd` | `server/room.ts` |
 | `roundOver` / `matchOver` never emitted | Raised on the stage change | `server/room.ts` |
-| Views carry no `code` field | The **tablet** generates/persists it, sends via `joinTable` | `client/src/main.tsx` |
+| Views carry no `code` field | The **tablet** generates/persists it, sends via `joinTable`, and builds the QR join links from its own `window.location` | `client/src/main.tsx`, `client/src/shared/invite.ts` |
 | Re-claiming an occupied seat | Replaces the old connection | `server/room.ts` |
 | A stale socket closing after reconnect | Ignored unless still the bound one | `server/router.ts` |
 | The table has no seat, but draws | `drawFromTable` resolves it from the turn | `server/room.ts` |
