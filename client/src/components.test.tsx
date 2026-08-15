@@ -712,7 +712,7 @@ describe('column metrics', () => {
     const short = columnMetrics(3);
     const long = columnMetrics(10);
     expect(short.cardFraction).toBeGreaterThan(long.cardFraction);
-    expect(short.show).toBe(0.38); // untightened while the card can shrink
+    expect(short.show).toBe(0.17); // untightened while the card can shrink
     expect(long.show).toBeLessThan(short.show);
     expect(long.cardFraction).toBe(0.42); // on the floor
   });

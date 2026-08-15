@@ -15,7 +15,7 @@ export interface ColumnProps {
 export function Column({ colour, cards, direction }: ColumnProps) {
   if (cards.length === 0) {
     return (
-      <div className={`column column--${direction}`}>
+      <div className={`column column--${direction}`} style={{ '--n': 1 } as React.CSSProperties}>
         <CardSlot colour={colour} size="md" label={`${colour} not started`} />
       </div>
     );
@@ -26,10 +26,22 @@ export function Column({ colour, cards, direction }: ColumnProps) {
   const ordered = direction === 'up' ? [...cards].reverse() : cards;
 
   return (
-    <div className={`column column--${direction}`} aria-label={`${colour} expedition`}>
+    <div
+      className={`column column--${direction}`}
+      // The card count is the divisor the CSS needs to clamp the stair's
+      // horizontal step against the cell it actually got.
+      style={{ '--n': cards.length } as React.CSSProperties}
+      aria-label={`${colour} expedition`}
+    >
       <ElevationProfile cards={cards} colour={colour} direction={direction} />
-      {ordered.map((card) => (
-        <div className="column__card" key={card.id}>
+      {ordered.map((card, i) => (
+        <div
+          className="column__card"
+          key={card.id}
+          // Indexed by play order, not render order, so the stair runs the
+          // same way for both players even though one column grows upward.
+          style={{ '--i': direction === 'up' ? ordered.length - 1 - i : i } as React.CSSProperties}
+        >
           <Card card={card} size="md" />
         </div>
       ))}

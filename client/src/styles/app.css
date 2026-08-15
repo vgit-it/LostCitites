@@ -198,6 +198,11 @@
    box that is now clipping. */
 .board__side {
   --card-h: min(9rem, calc(var(--card-frac, 0.5) * 100cqh));
+  --card-w: calc(var(--card-h) / 1.5);
+  /* The cell one column gets: the grid is five tracks with four 1rem gaps,
+     and cqw is this box's content width. Spelled out because the stair below
+     has to know how far it may run, and only the CSS knows this number. */
+  --col-w: calc((100cqw - 4rem) / 5);
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   gap: 1rem;
@@ -209,7 +214,7 @@
 }
 
 .board__side .card {
-  --card-width: calc(var(--card-h) / 1.5);
+  --card-width: var(--card-w);
 }
 
 .board__side--top {
@@ -220,12 +225,54 @@
   align-items: start;
 }
 
+/* A column is a staircase, not a stack: each card steps right as well as
+   down. The horizontal step is the preferred one until a deep column would
+   run past its cell, at which point it is whatever divides the remaining
+   width evenly — the one part of the geometry the CSS has to solve, because
+   the cell width is not known until layout.
+
+   The column then shifts left by half its own run so the staircase stays
+   centred in the cell instead of drifting right as it grows. */
 .column {
+  --step-x: min(
+    calc(var(--card-w) * 0.55),
+    calc((var(--col-w) - var(--card-w)) / max(1, var(--n, 1) - 1))
+  );
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   min-height: 0;
+  transform: translateX(calc(-0.5 * (var(--n, 1) - 1) * var(--step-x)));
+}
+
+/* Stacked by play order, so the newest card is on top in both directions —
+   the two sides paint opposite ways otherwise, because the upward column
+   renders its cards reversed. */
+.column__card {
+  z-index: var(--i, 0);
+  transform: translateX(calc(var(--i, 0) * var(--step-x)));
+}
+
+/* In a staircase the exposed part of a buried card is its left edge, so the
+   corner index carries the value and the big centred numeral is dropped —
+   overlapped, it is bisected by the next card and reads as a rendering
+   fault rather than a number. The fan makes exactly this trade for exactly
+   this reason. The mark moves out from under the index. */
+.column .card__index {
+  display: block;
+  font-size: calc(var(--card-width) * 0.44);
+  top: 0.1em;
+  left: 0.16em;
+}
+
+.column .card__value {
+  display: none;
+}
+
+.column .card__mark {
+  top: auto;
+  bottom: 0.2rem;
 }
 
 /* The signature element: a stepped ridge line down the column's left edge. */

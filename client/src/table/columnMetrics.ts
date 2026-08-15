@@ -13,10 +13,17 @@
 // footer — wrote itself over the scores and the turn text.
 
 /**
- * How much of each stacked card shows, as a fraction of a card's height.
- * Enough for the numeral in the corner and a band of colour.
+ * How much of each stacked card shows *vertically*, as a fraction of a card's
+ * height.
+ *
+ * Small on purpose. A column runs as a staircase — each card offset right as
+ * well as down — so it is the horizontal step that separates one card from
+ * the next, and the vertical step only has to clear the corner index. Paying
+ * for separation in width is what makes the cards big: a column had 234px of
+ * cell to work with and was using 56px of it, so three quarters of the board
+ * sat empty while the cards fought over a 147px band of height.
  */
-const SHOW = 0.38;
+const SHOW = 0.17;
 
 /**
  * A card never shrinks below this fraction of the side's height. Past here
@@ -32,9 +39,18 @@ const MIN_SHOW = 0.12;
 export interface ColumnMetrics {
   /** Card height, as a fraction of the side's height. */
   cardFraction: number;
-  /** How much of each card behind shows, as a fraction of card height. */
+  /** The vertical step between cards, as a fraction of card height. */
   show: number;
 }
+
+/**
+ * The horizontal step, as a fraction of card *width* — the other half of the
+ * staircase. Preferred rather than solved: the CSS clamps it down when a deep
+ * column would otherwise run past its cell, because only the CSS knows how
+ * wide that cell came out. Keeping it there is what avoids measuring
+ * anything in JS.
+ */
+export const STEP_X = 0.55;
 
 /**
  * Metrics that fit `cards` into exactly one side-height.
