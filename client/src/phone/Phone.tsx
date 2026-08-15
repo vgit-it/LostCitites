@@ -23,7 +23,7 @@ import {
   useTableEvents,
 } from '../session/useSession';
 import { BoardStrip } from './BoardStrip';
-import { CardFlight, Rect } from './CardFlight';
+import { CardFlight, Rect } from '../shared/CardFlight';
 import { DrawTargets } from './DrawTargets';
 import { DropZones } from './DropZones';
 import { DropZone, Point, chooseDrop } from './gesture';

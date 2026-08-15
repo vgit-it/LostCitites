@@ -13,21 +13,26 @@
 
 import { useEffect, useRef } from 'react';
 import { Card as CardModel } from '@shared/types';
-import { Card } from '../shared/Card';
+import { Card } from './Card';
+import { Rect } from './flightPath';
 import { EASE, FLIGHT_MS, animate } from '../platform/motion';
 
-/** Just the parts of a DOMRect a flight needs, so tests can build one. */
-export interface Rect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+export type { Rect };
+
+/**
+ * A landing settles onto something already on screen, so it shrinks to fit
+ * that thing and stays visible. A throw leaves the screen entirely: there is
+ * nothing to shrink to, so it keeps its size and fades as it goes.
+ */
+export type FlightKind = 'land' | 'throw';
 
 export interface CardFlightProps {
   card: CardModel;
   from: Rect;
   to: Rect;
+  kind?: FlightKind;
+  /** Degrees turned over the flight. A thrown card tumbles a little. */
+  spin?: number;
   /** Play the flight backwards — the server refused the move. */
   reversed?: boolean;
   durationMs?: number;
@@ -42,6 +47,8 @@ export function CardFlight({
   card,
   from,
   to,
+  kind = 'land',
+  spin = 0,
   reversed = false,
   durationMs = FLIGHT_MS,
   onDone,
@@ -61,19 +68,27 @@ export function CardFlight({
 
     const dx = to.x - from.x;
     const dy = to.y - from.y;
-    // Shrink toward the destination's width, but never to nothing — a chip
-    // is much smaller than a card and vanishing reads as a bug.
-    const endScale = Math.max(0.35, Math.min(1, to.width / (from.width || 1)));
+    // A landing shrinks toward whatever it is landing on, but never to
+    // nothing — a chip is much smaller than a card and vanishing reads as a
+    // bug. A throw has no destination to match, so it keeps its size.
+    const endScale =
+      kind === 'throw' ? 1 : Math.max(0.35, Math.min(1, to.width / (from.width || 1)));
+    // Gone by the time it is off the edge, still solid when it settles.
+    const endOpacity = kind === 'throw' ? 0 : reversed ? 1 : 0.9;
+
+    const turn = (deg: number) => (deg === 0 ? '' : ` rotate(${deg.toFixed(2)}deg)`);
 
     const frames: Keyframe[] = [
       { transform: 'translate(0px, 0px) scale(1)', opacity: 1 },
       {
-        transform: `translate(${dx / 2}px, ${dy / 2 + ARC_PX}px) scale(${(1 + endScale) / 2})`,
+        transform:
+          `translate(${dx / 2}px, ${dy / 2 + ARC_PX}px) scale(${(1 + endScale) / 2})` +
+          turn(spin / 2),
         offset: 0.5,
       },
       {
-        transform: `translate(${dx}px, ${dy}px) scale(${endScale})`,
-        opacity: reversed ? 1 : 0.9,
+        transform: `translate(${dx}px, ${dy}px) scale(${endScale})` + turn(spin),
+        opacity: endOpacity,
       },
     ];
 

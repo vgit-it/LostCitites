@@ -21,7 +21,8 @@ import {
   initialGesture,
 } from './phone/gesture';
 import { DropZones, expeditionLabel } from './phone/DropZones';
-import { CardFlight } from './phone/CardFlight';
+import { CardFlight } from './shared/CardFlight';
+import { centreOf, edgeOfSeat, edgeRect } from './shared/flightPath';
 import { DrawTargets } from './phone/DrawTargets';
 import { PlaceActions, expeditionHint, placementWeight } from './phone/PlaceActions';
 import { BoardStrip, topOf, wagersIn } from './phone/BoardStrip';
@@ -966,6 +967,41 @@ describe('card flight', () => {
     expect(el.style.top).toBe('300px');
     // It is a picture of a card; the real one is elsewhere.
     expect(el.getAttribute('aria-hidden')).toBe('true');
+  });
+});
+
+describe('flight paths', () => {
+  const rect = { x: 100, y: 200, width: 80, height: 120 };
+  const viewport = { width: 800, height: 400 };
+
+  it('puts a thrown card clear of the edge, not flush with it', () => {
+    // Flush would leave the card half on screen while it fades, which reads
+    // as the animation giving up rather than the card leaving.
+    expect(edgeRect(rect, 'left', viewport).x).toBeLessThan(-rect.width);
+    expect(edgeRect(rect, 'right', viewport).x).toBeGreaterThan(viewport.width);
+    expect(edgeRect(rect, 'top', viewport).y).toBeLessThan(-rect.height);
+    expect(edgeRect(rect, 'bottom', viewport).y).toBeGreaterThan(viewport.height);
+  });
+
+  it('keeps the other axis and the size, so a card leaves in a straight line', () => {
+    const thrown = edgeRect(rect, 'right', viewport);
+    expect(thrown.y).toBe(rect.y);
+    expect(thrown.width).toBe(rect.width);
+    expect(thrown.height).toBe(rect.height);
+
+    const dropped = edgeRect(rect, 'bottom', viewport);
+    expect(dropped.x).toBe(rect.x);
+  });
+
+  it('reads the same journey both ways round', () => {
+    // A throw off the bottom and an arrival over the bottom are one rect.
+    expect(edgeRect(rect, 'bottom', viewport)).toEqual(edgeRect(rect, 'bottom', viewport));
+    expect(edgeOfSeat(0)).toBe('bottom');
+    expect(edgeOfSeat(1)).toBe('top');
+  });
+
+  it('finds the centre of a rect', () => {
+    expect(centreOf(rect)).toEqual({ x: 140, y: 260 });
   });
 });
 
