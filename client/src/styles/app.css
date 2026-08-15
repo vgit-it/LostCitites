@@ -108,6 +108,30 @@
   opacity: 0.45;
 }
 
+/* A card nobody has seen: what a draw off the deck looks like in flight.
+   Only ever rendered inside .card-flight — the game shows no other backs. */
+.card--back {
+  width: var(--card-width);
+  aspect-ratio: 2 / 3;
+  border-radius: var(--radius);
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--ink),
+    var(--ink) 4px,
+    color-mix(in srgb, var(--ink) 72%, var(--paper)) 4px,
+    color-mix(in srgb, var(--ink) 72%, var(--paper)) 8px
+  );
+  box-shadow: 0 2px 6px rgb(31 29 26 / 0.28);
+}
+
+/* Already in the state that arrived with the cue, so already on the table
+   before its flight begins. Held back until the flight lands, or the
+   animation would be covering a card that had visibly popped into place. */
+.column__card.is-arriving,
+.discard-row__pile.is-arriving {
+  visibility: hidden;
+}
+
 /* ---------- table ---------- */
 
 .table {

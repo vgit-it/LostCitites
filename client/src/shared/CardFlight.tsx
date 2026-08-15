@@ -27,7 +27,8 @@ export type { Rect };
 export type FlightKind = 'land' | 'throw';
 
 export interface CardFlightProps {
-  card: CardModel;
+  /** Null for a card nobody saw — a draw off the deck flies face down. */
+  card: CardModel | null;
   from: Rect;
   to: Rect;
   kind?: FlightKind;
@@ -116,7 +117,7 @@ export function CardFlight({
       aria-hidden="true"
       style={{ left: from.x, top: from.y, width: from.width, height: from.height }}
     >
-      <Card card={card} size="lg" />
+      {card ? <Card card={card} size="lg" /> : <div className="card card--back" />}
     </div>
   );
 }

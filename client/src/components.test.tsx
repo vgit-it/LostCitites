@@ -5,7 +5,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { Card as CardModel, Colour, PublicPlayerView } from '@shared/types';
+import { Card as CardModel, Colour, PublicPlayerView, TableView } from '@shared/types';
 import { Card } from './shared/Card';
 import { Column } from './table/Column';
 import { profilePoints } from './table/ElevationProfile';
@@ -32,6 +32,7 @@ import { expeditionHint, placementWeight, throwLabel } from './phone/columnRead'
 import { CardFlight } from './shared/CardFlight';
 import { centreOf, edgeOfSeat, edgeRect } from './shared/flightPath';
 import { columnExtent, columnMetrics, sideMetrics } from './table/columnMetrics';
+import { planFlight } from './table/flights';
 import {
   canVibrate,
   resetVibrateThrottle,
@@ -884,6 +885,94 @@ describe('flight paths', () => {
 
   it('finds the centre of a rect', () => {
     expect(centreOf(rect)).toEqual({ x: 140, y: 260 });
+  });
+});
+
+describe('planning a card’s journey across the table', () => {
+  const seated = (seat: 0 | 1, name: string): PublicPlayerView => ({
+    seat,
+    name,
+    connected: true,
+    handCount: 8,
+    expeditions: { yellow: [], blue: [], white: [], green: [], red: [] },
+    roundScores: [],
+    currentRoundScore: 0,
+  });
+
+  const tableView = (tops: Partial<Record<Colour, CardModel | null>> = {}): TableView => ({
+    viewer: 'table',
+    round: 1,
+    stage: 'playing',
+    deckCount: 40,
+    discardTops: { ...noTops, ...tops },
+    turn: 0,
+    phase: 'place',
+    legalDrawSources: [],
+    readyForNextRound: [false, false],
+    players: [seated(0, 'Paul'), seated(1, 'Aditi')],
+  });
+
+  it('flies a placed card in over its own player’s edge', () => {
+    const card = num('blue', 7);
+    const plan = planFlight({ name: 'placed', seat: 0, card, target: 'expedition' }, tableView());
+
+    expect(plan).toEqual({
+      card,
+      anchor: '[data-card-id="blue-7"]',
+      edge: 'bottom',
+      direction: 'in',
+      hideCardId: 'blue-7',
+    });
+  });
+
+  it('comes in over the far edge for the player sitting opposite', () => {
+    const plan = planFlight(
+      { name: 'placed', seat: 1, card: num('red', 3), target: 'discard' },
+      tableView(),
+    );
+    expect(plan?.edge).toBe('top');
+  });
+
+  it('holds an arriving card back until it lands', () => {
+    // It is in the state that came with the cue, so it is on the table before
+    // the flight starts. Without this the animation covers a card that has
+    // already popped into place.
+    const plan = planFlight(
+      { name: 'placed', seat: 0, card: num('green', 4), target: 'expedition' },
+      tableView(),
+    );
+    expect(plan?.hideCardId).toBe('green-4');
+  });
+
+  it('takes the drawn card off the pile as it stood a moment ago', () => {
+    // The state arriving with this cue no longer has that card anywhere: the
+    // previous view is the only place it still exists.
+    const taken = num('green', 9);
+    const plan = planFlight(
+      { name: 'drew', seat: 1, source: { kind: 'discard', colour: 'green' } },
+      tableView({ green: taken }),
+    );
+
+    expect(plan).toEqual({
+      card: taken,
+      anchor: '[data-pile="green"]',
+      edge: 'top',
+      direction: 'out',
+      hideCardId: null,
+    });
+  });
+
+  it('sends a deck draw out face down, because nobody saw it', () => {
+    const plan = planFlight({ name: 'drew', seat: 0, source: { kind: 'deck' } }, tableView());
+
+    expect(plan?.card).toBeNull();
+    expect(plan?.anchor).toBe('[data-deck]');
+    expect(plan?.direction).toBe('out');
+  });
+
+  it('has nothing to fly for a screen change', () => {
+    expect(planFlight({ name: 'roundOver' }, tableView())).toBeNull();
+    expect(planFlight({ name: 'matchOver', winner: 0 }, tableView())).toBeNull();
   });
 });
 
