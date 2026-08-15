@@ -1,149 +1,77 @@
-// The hand's gesture machine, as a pure reducer.
+// The carry gesture as a reducer: press, move, release.
 //
-// One press can become either of two things and the machine's whole job is
-// deciding which: move the thumb and you are fanning the hand; hold still and
-// you are picking a card up. Keeping that arbitration here — rather than in
-// a tangle of refs inside the component — is what makes the sequence
-// testable without a real pointer, which jsdom cannot give us anyway.
+// Pure and separately tested, so the arbitration is checkable without a
+// browser. `Hand` owns the pointer events and the animation frame; everything
+// about *what the gesture is* lives here.
 //
-// No rules logic. `chooseDrop` is handed the server's legalPlacements and
-// only reports which of them a release landed on.
+// There is no hold timer and no threshold to cross before a card lifts. The
+// card comes up on contact and stays up as long as the finger is down —
+// pressing a card and picking a card are the same act, so there is nothing
+// for a delay to disambiguate.
 
-import { PlaceTarget } from '@shared/types';
-import {
-  Drag,
-  SPREAD_INITIAL,
-  SPREAD_MAX,
-  SPREAD_MIN,
-  SPREAD_TRAVEL_PX,
-  clampSpread,
-} from './fan';
+import { Point, Sample, trimSamples } from './carry';
 
-/**
- * How long the thumb must sit still to pick a card up. Long enough not to
- * fire while the hand is being fanned, short enough that it does not feel
- * like waiting for permission.
- */
-export const HOLD_MS = 220;
-
-/** Movement past this before the hold fires means the gesture is a fan. */
-export const MOVE_SLOP_PX = 10;
-
-export type GesturePhase = 'idle' | 'pending' | 'fanning' | 'lifted';
-
-export interface Point {
-  x: number;
-  y: number;
-}
+export type GesturePhase = 'idle' | 'carrying';
 
 export interface GestureState {
   phase: GesturePhase;
-  /** The card the press landed on — the one a hold will lift. */
   cardId: string | null;
-  /** Sticky across gestures: the hand keeps the shape you left it in. */
-  spread: number;
-  /** Offset from the press point. Only meaningful while lifted. */
-  drag: Drag;
-  /** Where this gesture started, and the spread it started from. */
+  /** Where the finger went down. Displacement is measured from here. */
   origin: Point | null;
-  spreadAtPress: number;
+  /** Where the finger is now. */
+  pointer: Point | null;
+  /** Trailing horizontal samples, for the release velocity. */
+  samples: Sample[];
 }
 
 export type GestureEvent =
-  | { t: 'down'; cardId: string | null; x: number; y: number }
-  | { t: 'move'; x: number; y: number }
-  /** The hold timer fired. */
-  | { t: 'hold' }
+  | { t: 'down'; cardId: string | null; x: number; y: number; at: number }
+  | { t: 'move'; x: number; y: number; at: number }
   | { t: 'up' }
   | { t: 'cancel' };
 
 export const initialGesture: GestureState = {
   phase: 'idle',
   cardId: null,
-  spread: SPREAD_INITIAL,
-  drag: { x: 0, y: 0 },
   origin: null,
-  spreadAtPress: SPREAD_INITIAL,
+  pointer: null,
+  samples: [],
 };
-
-/** Spread carries over; everything else about the gesture is discarded. */
-function rest(state: GestureState): GestureState {
-  return {
-    ...initialGesture,
-    spread: state.spread,
-    spreadAtPress: state.spread,
-  };
-}
-
-function spreadFrom(state: GestureState, dx: number): number {
-  const range = SPREAD_MAX - SPREAD_MIN;
-  return clampSpread(state.spreadAtPress + (dx / SPREAD_TRAVEL_PX) * range);
-}
 
 export function gestureReducer(state: GestureState, event: GestureEvent): GestureState {
   switch (event.t) {
-    case 'down':
+    case 'down': {
+      // A press that lands between cards is not a carry. Staying idle means
+      // the move handler has nothing to do and the hand does not twitch.
+      if (!event.cardId) return initialGesture;
+
+      const at = { x: event.x, y: event.y };
       return {
-        ...state,
-        phase: 'pending',
+        phase: 'carrying',
         cardId: event.cardId,
-        drag: { x: 0, y: 0 },
-        origin: { x: event.x, y: event.y },
-        spreadAtPress: state.spread,
+        origin: at,
+        pointer: at,
+        samples: [{ x: event.x, t: event.at }],
       };
-
-    case 'move': {
-      if (!state.origin) return state;
-      const dx = event.x - state.origin.x;
-      const dy = event.y - state.origin.y;
-
-      // A lifted card simply follows the thumb.
-      if (state.phase === 'lifted') return { ...state, drag: { x: dx, y: dy } };
-
-      if (state.phase === 'fanning') return { ...state, spread: spreadFrom(state, dx) };
-
-      // Still pending: enough travel and this was never a hold. Distance
-      // rather than dx alone, so a vertical drag also cancels the pickup —
-      // it is not a fan either, but it is certainly not "held still".
-      if (state.phase === 'pending' && Math.hypot(dx, dy) > MOVE_SLOP_PX) {
-        return { ...state, phase: 'fanning', spread: spreadFrom(state, dx) };
-      }
-      return state;
     }
 
-    // Too late once the thumb has moved, and nothing to lift if the press
-    // missed every card.
-    case 'hold':
-      return state.phase === 'pending' && state.cardId
-        ? { ...state, phase: 'lifted', drag: { x: 0, y: 0 } }
-        : state;
+    case 'move': {
+      if (state.phase !== 'carrying') return state;
+      return {
+        ...state,
+        pointer: { x: event.x, y: event.y },
+        samples: [...trimSamples(state.samples, event.at), { x: event.x, t: event.at }],
+      };
+    }
 
     case 'up':
     case 'cancel':
-      return rest(state);
-
-    default:
-      return state;
+      return initialGesture;
   }
 }
 
-/** Where a release landed. `null` is neutral space — the cancel gesture. */
-export type DropZone = 'expedition' | 'discard' | null;
-
-/**
- * What a release means.
- *
- * `refuse` is a drop onto a zone the server did not offer for this card. The
- * zone is already visibly dead by then, so this is the rare deliberate
- * attempt rather than the common case — it earns a shake, not a silent
- * cancel, because silence reads as a dropped input.
- */
-export type DropOutcome =
-  | { kind: 'place'; target: PlaceTarget['kind'] }
-  | { kind: 'refuse'; target: PlaceTarget['kind'] }
-  | { kind: 'cancel' };
-
-export function chooseDrop(zone: DropZone, targets: PlaceTarget['kind'][]): DropOutcome {
-  if (!zone) return { kind: 'cancel' };
-  return targets.includes(zone) ? { kind: 'place', target: zone } : { kind: 'refuse', target: zone };
+/** How far the finger has travelled since it went down. */
+export function dragOf(state: GestureState): Point {
+  if (!state.origin || !state.pointer) return { x: 0, y: 0 };
+  return { x: state.pointer.x - state.origin.x, y: state.pointer.y - state.origin.y };
 }

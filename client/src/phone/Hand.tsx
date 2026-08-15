@@ -1,37 +1,48 @@
-// The player's hand, fanned the way a hand of cards actually sits, and
-// handled the way one actually is: drag across it to fan it open, press and
-// hold a card to pick it up, carry it to a zone to commit.
+// The player's hand: a row of cards you pick up and throw.
 //
-// Presentational — cards in, gestures out. It reports raw points on release
-// and lets the parent decide what was under them, so the hand knows nothing
-// about drop zones, and geometry lives in fan.ts.
+// Press a card and it comes up under your finger and stays up while the
+// finger is down. Throw it right to play it, left to discard it, let go
+// anywhere else and it drops back into the row.
+//
+// Presentational — cards in, a decision out. The hand reports *which way the
+// card went*, not what was underneath it, so it needs to know nothing about
+// what a turn is or where anything lives. The arithmetic is all in carry.ts
+// and gesture.ts; this file owns the pointer events and the animation frame.
 //
 // Sorted by colour then value so the same card is always in the same place.
 
-import { useEffect, useReducer, useRef } from 'react';
+import { useEffect, useReducer, useRef, useState } from 'react';
 import { COLOURS, Card as CardModel, PlaceTarget } from '@shared/types';
 import { Card } from '../shared/Card';
-import { vibrateLift, vibrateTick } from '../platform/vibrate';
-import { FanSlot, SlotState, fanLayout, slotTransform, spanOf } from './fan';
-import { HOLD_MS, Point, gestureReducer, initialGesture } from './gesture';
+import { vibrateLift, vibrateZone } from '../platform/vibrate';
+import {
+  CARRY_LIFT_PX,
+  Point,
+  Throw,
+  armedSide,
+  flickOutcome,
+  followStep,
+  isSettled,
+  tiltFor,
+  velocityFrom,
+} from './carry';
+import { dragOf, gestureReducer, initialGesture } from './gesture';
 
 export interface HandProps {
   cards: CardModel[];
   /** From the server. The phone mutes anything absent from this map. */
   legalPlacements: Record<string, PlaceTarget['kind'][]>;
-  selectedId: string | null;
-  onSelect: (cardId: string | null) => void;
   disabled?: boolean;
-  /** Non-interactive: the turn is elsewhere in the UI. */
+  /** Non-interactive: it is this player's turn, but not to place. */
   muted?: boolean;
   /** Receded as well — not this player's turn at all. */
   away?: boolean;
-  /** A card has come up out of the fan and is now travelling with the thumb. */
-  onLift?: (cardId: string) => void;
-  /** Every move of a held card, so the parent can light the zone underneath. */
-  onDragMove?: (point: Point) => void;
-  /** Let go. A null point means the gesture was cancelled, not released. */
-  onRelease?: (cardId: string, point: Point | null) => void;
+  /** A card has come up under the finger. */
+  onCarry?: (cardId: string | null) => void;
+  /** Which way the carried card is currently leaning, for the wash behind it. */
+  onArmed?: (side: PlaceTarget['kind'] | null) => void;
+  /** Let go. 'return' and 'refuse' never leave the hand. */
+  onThrow?: (cardId: string, outcome: Throw) => void;
   /** The card the server just refused: shake it, then let it settle back. */
   refusingId?: string | null;
 }
@@ -69,194 +80,190 @@ export function drawnCardId(prev: CardModel[], next: CardModel[]): string | null
  * The card under a point, or null.
  *
  * Hit-testing through the document rather than per-card refs is what lets a
- * press land on the sliver of a card that its neighbour overlaps, which at a
- * closed spread is most of every card but one.
+ * press land on a card wherever it actually is on screen, including while it
+ * is mid-transition back into the row.
  */
 function cardIdAt(x: number, y: number): string | null {
   if (typeof document.elementFromPoint !== 'function') return null; // jsdom
-  return document.elementFromPoint(x, y)?.closest('[data-card-id]')?.getAttribute('data-card-id')
-    ?? null;
+  return (
+    document.elementFromPoint(x, y)?.closest('[data-card-id]')?.getAttribute('data-card-id') ?? null
+  );
 }
+
+/** Where the carried card is drawn, relative to its slot in the row. */
+interface Carry {
+  x: number;
+  y: number;
+  tilt: number;
+}
+
+const AT_REST: Carry = { x: 0, y: 0, tilt: 0 };
 
 export function Hand({
   cards,
   legalPlacements,
-  selectedId,
-  onSelect,
   disabled,
   muted,
   away,
-  onLift,
-  onDragMove,
-  onRelease,
+  onCarry,
+  onArmed,
+  onThrow,
   refusingId,
 }: HandProps) {
   const [gesture, dispatch] = useReducer(gestureReducer, initialGesture);
   const ordered = sortHand(cards);
-  const slots = fanLayout(ordered.length, gesture.spread);
-  const span = spanOf(slots);
 
-  /** The pending hold. Cleared the moment the gesture stops being a press. */
-  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Where the carried card is *drawn*, which trails where the finger *is*.
+  // In state rather than a ref because it is what the render reads; the
+  // frame loop below is the only thing that writes it.
+  const [carry, setCarry] = useState<Carry>(AT_REST);
+  const target = useRef<Point>({ x: 0, y: 0 });
+  const drawn = useRef<Point>({ x: 0, y: 0 });
 
-  function clearHold(): void {
-    if (holdTimer.current !== null) {
-      clearTimeout(holdTimer.current);
-      holdTimer.current = null;
+  const carriedId = gesture.phase === 'carrying' ? gesture.cardId : null;
+  const drag = dragOf(gesture);
+  target.current = { x: drag.x, y: drag.y - CARRY_LIFT_PX };
+
+  // Tell the parent as the carry starts and ends, so the wash can appear.
+  // Guarded against the mount pass: reporting "nothing is carried" before
+  // anything has been touched is not news, and it would arrive as a state
+  // update on every fresh render of the hand.
+  const notified = useRef<string | null>(null);
+  useEffect(() => {
+    if (notified.current === carriedId) return;
+    notified.current = carriedId;
+
+    if (carriedId) vibrateLift();
+    onCarry?.(carriedId);
+    if (!carriedId) {
+      drawn.current = { x: 0, y: 0 };
+      setCarry(AT_REST);
     }
-  }
-
-  // A press is only a pickup for as long as it stays a press. Anything that
-  // moves the machine out of `pending` — travel, release, cancel — has to
-  // take the timer with it, or the card comes up mid-fan.
-  useEffect(() => {
-    if (gesture.phase !== 'pending') clearHold();
-  }, [gesture.phase]);
-
-  useEffect(() => clearHold, []);
-
-  // Fanning is not choosing, so the raise from the press is withdrawn —
-  // otherwise the tray sits there offering actions for a card the player has
-  // stopped thinking about and is now just spreading past.
-  const fanning = gesture.phase === 'fanning';
-  useEffect(() => {
-    if (fanning) onSelect(null);
+    // onCarry is a fresh closure every render; reacting to it would restart
+    // the carry on every parent update.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fanning]);
+  }, [carriedId]);
 
-  // The lift itself, announced once. Driven off the phase rather than from
-  // inside the timer callback so the reducer stays the only thing deciding
-  // whether a hold became a lift.
-  const liftedId = gesture.phase === 'lifted' ? gesture.cardId : null;
+  // The follow. One rAF loop for as long as a card is up: the card eases
+  // toward the finger rather than being pinned to it, and its tilt falls out
+  // of how far it is trailing.
   useEffect(() => {
-    if (!liftedId) return;
-    vibrateLift();
-    onSelect(liftedId);
-    onLift?.(liftedId);
-    // onSelect/onLift are the parent's identity-unstable callbacks; the lift
-    // is keyed by the card, and re-firing it because a parent re-rendered
-    // would buzz the phone for no reason.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liftedId]);
+    if (!carriedId || typeof requestAnimationFrame !== 'function') return;
 
-  const className = [
-    'hand',
-    'hand--fan',
-    muted && 'is-muted',
-    away && 'is-away',
-    gesture.phase !== 'idle' && 'is-gesturing',
-    gesture.phase === 'fanning' && 'is-fanning',
-  ]
-    .filter(Boolean)
-    .join(' ');
+    let frame = 0;
+    let last = performance.now();
+
+    const tick = (now: number) => {
+      const dt = now - last;
+      last = now;
+
+      if (!isSettled(drawn.current, target.current)) {
+        drawn.current = followStep(drawn.current, target.current, dt);
+        setCarry({
+          x: drawn.current.x,
+          y: drawn.current.y,
+          tilt: tiltFor(target.current.x - drawn.current.x),
+        });
+      }
+      frame = requestAnimationFrame(tick);
+    };
+
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [carriedId]);
+
+  // Which wash is lit. Buzzed once per crossing, not per move event.
+  const armed = carriedId ? armedSide(drag.x) : null;
+  const lastArmed = useRef<PlaceTarget['kind'] | null>(null);
+  useEffect(() => {
+    if (armed === lastArmed.current) return;
+    if (armed) vibrateZone();
+    lastArmed.current = armed;
+    onArmed?.(armed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [armed]);
 
   function handlePointerDown(event: React.PointerEvent<HTMLUListElement>): void {
-    if (disabled || event.button !== 0) return;
+    if (disabled || muted || event.button !== 0) return;
     const id = cardIdAt(event.clientX, event.clientY);
-    // Capture on the list, not the card: a held card leaves the one it
-    // started on, and a fan drag leaves the hand entirely.
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    dispatch({ t: 'down', cardId: id, x: event.clientX, y: event.clientY });
+    if (!id) return;
 
-    // Raising on press keeps a plain tap feeling immediate. The hold turns
-    // that raise into a pickup; a drag takes it back.
-    if (id && id !== selectedId) {
-      onSelect(id);
-      vibrateTick();
-    }
-    if (id) holdTimer.current = setTimeout(() => dispatch({ t: 'hold' }), HOLD_MS);
+    // Captured so the card keeps following even once the finger has left the
+    // row — which it will, since a throw ends at the edge of the screen.
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    dispatch({ t: 'down', cardId: id, x: event.clientX, y: event.clientY, at: event.timeStamp });
   }
 
   function handlePointerMove(event: React.PointerEvent<HTMLUListElement>): void {
-    if (disabled || gesture.phase === 'idle') return;
-    dispatch({ t: 'move', x: event.clientX, y: event.clientY });
-    // `gesture` is this render's state, so the phase read here is the one
-    // *before* this move — which is what we want: a card that was lifted
-    // stays lifted, and the pending -> fanning transition is the reducer's
-    // to make and the effect below's to react to.
-    if (gesture.phase === 'lifted') onDragMove?.({ x: event.clientX, y: event.clientY });
+    if (gesture.phase !== 'carrying') return;
+    dispatch({ t: 'move', x: event.clientX, y: event.clientY, at: event.timeStamp });
   }
 
   function handlePointerUp(event: React.PointerEvent<HTMLUListElement>): void {
     event.currentTarget.releasePointerCapture?.(event.pointerId);
-    const held = gesture.phase === 'lifted' ? gesture.cardId : null;
-    const cancelled = event.type === 'pointercancel';
-    dispatch({ t: cancelled ? 'cancel' : 'up' });
 
-    if (held) {
-      onRelease?.(held, cancelled ? null : { x: event.clientX, y: event.clientY });
-    }
+    const id = gesture.phase === 'carrying' ? gesture.cardId : null;
+    const cancelled = event.type === 'pointercancel';
+    const outcome: Throw = cancelled
+      ? 'return'
+      : flickOutcome({
+          dx: dragOf(gesture).x,
+          vx: velocityFrom(gesture.samples),
+          legalTargets: id ? legalPlacements[id] ?? [] : [],
+        });
+
+    dispatch({ t: cancelled ? 'cancel' : 'up' });
+    if (id) onThrow?.(id, outcome);
   }
 
+  const className = [
+    'hand',
+    muted ? 'is-muted' : '',
+    away ? 'is-away' : '',
+    carriedId ? 'is-carrying' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
-    // role="list" is explicit because Safari VoiceOver drops list semantics
-    // from a ul with list-style: none.
     <ul
       className={className}
       role="list"
       aria-label="Your hand"
-      // Spread trades against card size: the fan's width budget is the
-      // viewport, so opening it wide yields smaller cards rather than cards
-      // that overflow a container nothing is allowed to clip.
-      style={{ '--fan-span': span.toFixed(3) } as React.CSSProperties}
+      // The row divides the width it has by the cards in it; there is no
+      // measuring and no fan geometry left to resolve.
+      style={{ '--hand-count': ordered.length } as React.CSSProperties}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
     >
-      {ordered.map((card, i) => {
-        // Legality is only worth drawing while there is a placement to make.
-        // The server sends no legalPlacements during the draw phase or on
-        // the opponent's turn, so reading it then marks the whole hand
-        // unplayable and greys out the one thing the draw decision runs on:
-        // which colours you are holding.
+      {ordered.map((card) => {
         const playable = muted || (legalPlacements[card.id] ?? []).length > 0;
-        const selected = card.id === selectedId;
-        const dragging = card.id === liftedId;
-        const slot: FanSlot = slots[i];
-        const state: SlotState = selected ? 'lifted' : playable ? 'rest' : 'muted';
+        const carried = card.id === carriedId;
 
         return (
           <li
-            key={card.id}
-            // The hit-test id: a press resolves the card under the thumb
-            // through this, without a ref per card.
             data-card-id={card.id}
+            key={card.id}
             className={[
               'hand__slot',
               playable ? '' : 'is-muted',
-              selected ? 'is-lifted' : '',
-              dragging ? 'is-dragging' : '',
+              carried ? 'is-carried' : '',
               card.id === refusingId ? 'is-refusing' : '',
             ]
               .filter(Boolean)
               .join(' ')}
-            // The wrapper's transform is *where the card sits*; the card's own
-            // is *what it is doing*. Keeping them on separate elements means
-            // they multiply instead of clobbering each other.
-            style={{
-              transform: slotTransform(slot, state, dragging ? gesture.drag : undefined),
-              zIndex: selected ? 99 : slot.zIndex,
-            }}
+            style={
+              carried
+                ? ({
+                    transform: `translate3d(${carry.x.toFixed(1)}px, ${carry.y.toFixed(1)}px, 0) rotate(${carry.tilt.toFixed(2)}deg) scale(1.12)`,
+                    zIndex: 99,
+                  } as React.CSSProperties)
+                : undefined
+            }
           >
-            <Card
-              card={card}
-              size="lg"
-              selected={selected}
-              // Only a hand that is not this player's to act on is truly
-              // disabled. An unplayable card stays live so it can be picked
-              // up and have the dead zone explain itself.
-              dimmed={disabled}
-              // Keyboard only. A pointer-driven click is redundant here —
-              // the press already raised this card — and it is unreliable
-              // besides: press and release on two different cards fires
-              // click on their common ancestor, never the button.
-              // detail === 0 is the one reliable way to tell the two apart,
-              // with no timers or flags.
-              onClick={(event) => {
-                if (event.detail === 0) onSelect(card.id);
-              }}
-            />
+            <Card card={card} size="lg" dimmed={disabled} />
           </li>
         );
       })}
