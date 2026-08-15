@@ -80,9 +80,14 @@ export function DemoIndex({ params }: { params: DemoParams }) {
           </a>
         </div>
         <p className="label">
-          Open a phone route on an actual phone. Each device that opens one on
-          its own runs its own game, with a bot in the other seat — the panes
-          view is the one where all three share a match.
+          Open a phone route on an actual phone, sideways. Each device that
+          opens one on its own runs its own game, with a bot in the other
+          seat — the panes view is the one where all three share a match.
+        </p>
+        <p className="label">
+          Drawing happens on the table, so a phone opened by itself can place
+          a card but not take one. Use the panes view, or the table on one
+          device and a phone route on another, to play a turn through.
         </p>
       </section>
     </div>

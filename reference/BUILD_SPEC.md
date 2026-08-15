@@ -33,7 +33,7 @@ Personal project, LAN-first, no public release.
 **In scope**
 - Exactly 2 players, 3 rounds, standard rules.
 - One shared table display (tablet, landscape).
-- Two phone controllers (portrait).
+- Two phone controllers (landscape).
 - Single room at a time. 3-digit join code.
 - Local network hosting.
 
@@ -360,7 +360,8 @@ Landscape, tablet, viewed from ~1 metre. **Readability at distance is the primar
 - **Draw pile count always visible.** Turns amber below 10, red below 5.
 - **Turn indicator unmissable.** Whose turn, and which phase (`placing` vs `drawing`). A subtle glow on the active player's side is not enough — use an explicit text line.
 - **Live round score** per player, recomputed each broadcast. Optional but very useful for pacing decisions.
-- **No input.** The table is read-only. No taps do anything. This prevents accidental state changes when someone leans on the tablet.
+- **One gesture, and no taps.** The table is read-only except for the draw: during a draw phase the player to move presses a legal pile and pulls it toward their own edge of the table, and the card leaves for their phone. Nothing responds to a tap, which is what the original "no input" rule was protecting — an elbow does not pull toward a seat, and the other player's stray swipe travels the wrong way and is refused. Implemented in `client/src/table/drawGesture.ts`; the legal piles arrive as `TableView.legalDrawSources`, so the table does no rules work of its own.
+- **Cards arrive and leave.** A placed card flies in over its own player's edge and lands on its column or discard pile; a drawn card leaves the pile toward the player taking it. Cosmetic, driven by `TableEvent`; the next `state` is still the source of truth.
 - **Keep screen awake.** Wake Lock API, with a fallback of a looping invisible video element if running over plain HTTP.
 
 ### Screens
@@ -386,68 +387,64 @@ WHITE    —                                            = 0
 
 ## 8. Phone client
 
-Portrait. One thumb. The player is looking up at the table most of the time, so the phone must be glanceable.
+Landscape, held in two hands like a hand of cards. The player is looking up at the table most of the time, so the phone shows **only their hand** — no deck, no discards, no expedition columns. All of that is on the tablet in front of them, and a small copy of it here asks them to play the game twice. Portrait shows a rotate prompt and nothing else.
 
 ### Layout
 
 ```
-┌─────────────────────┐
-│ Your turn — place   │  ← state banner, colour-coded
-│ Deck: 44            │
-├─────────────────────┤
-│                     │
-│   [selected card    │
-│    enlarged preview]│  ← only when a card is tapped
-│                     │
-│  ┌────────┐┌───────┐│
-│  │ Play to││Discard││  ← action buttons appear on select
-│  │  BLUE  ││       ││
-│  └────────┘└───────┘│
-├─────────────────────┤
-│ ┌─┐┌─┐┌─┐┌─┐┌─┐┌─┐  │
-│ │2││5││W││9││3││7│  │  ← hand, horizontally scrollable
-│ └─┘└─┘└─┘└─┘└─┘└─┘  │     or 2 rows of 4
-└─────────────────────┘
+┌──────────────────────────────────────────────┐
+│                  PLAY CARD                   │  ← one line of state
+│                                              │
+│   ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐   │
+│   │2 │ │5 │ │W │ │9 │ │3 │ │7 │ │4 │ │10│   │  ← the hand, and
+│   └──┘ └──┘ └──┘ └──┘ └──┘ └──┘ └──┘ └──┘   │     nothing else
+│                                              │
+└──────────────────────────────────────────────┘
 ```
+
+The row divides the width it has by the cards in it, so a hand played down
+to three cards gets three big cards.
 
 ### Interaction model
 
-**Place phase**
-1. Tap a card in hand → it enlarges, action buttons appear.
-2. Illegal targets are greyed with a reason ("must beat 7").
-3. Tap "Play to BLUE" or "Discard" → sent to server.
-4. Buttons disable until the next state arrives.
+**Place phase.** Press a card and it comes up under your finger — no hold to
+wait out, because pressing a card and picking a card are the same act. It
+rides above the finger and trails it slightly; the lag is what gives it
+weight, and the tilt falls straight out of the lag, so the card levels off
+by itself when the hand stops.
 
-**Draw phase**
-The hand area is replaced by six draw targets:
+Throw it **right** to play it to its own expedition, **left** to discard.
+There is no target to choose: a card has exactly one colour, so the
+direction is the whole decision. Either a flick or a slow shove commits —
+one threshold alone strands one of the two hands that play this game.
+Let go anywhere else and the card drops back into the row; throw it at a
+direction the server did not offer and it shakes and comes home.
 
-```
-┌────────────────────────┐
-│  Draw a card           │
-│  ┌────┐                │
-│  │DECK│  44 left       │
-│  └────┘                │
-│  ┌──┐┌──┐┌──┐┌──┐┌──┐  │
-│  │Y6││B–││W2││G9││R–│  │
-│  └──┘└──┘└──┘└──┘└──┘  │
-│   the card you just    │
-│   discarded is locked  │
-└────────────────────────┘
-```
+While a card is up, the two directions wash across the screen behind it:
+the card's own colour on the right, naming the play and its cost
+("Start red · −20"), neutral grey on the left for the discard. They are
+scenery, not drop targets — nothing is hit-tested, or the gesture would
+have two answers.
 
-Empty piles and the blocked card are greyed and non-tappable.
+**Draw phase.** The phone says `PICK A CARD FROM THE BOARD` and its hand
+goes inert. Drawing happens on the tablet (§7): the card flies off the
+table toward the player and arrives over the top edge of the phone.
+
+**Every move is also a plain button.** `HandActions` renders the whole
+legal move set, visually hidden until focused — the skip-link pattern. A
+gesture-only interface is an interface only some people can use.
 
 ### Requirements
 
 - **Buzz on turn start.** `navigator.vibrate(200)` when the view flips to your turn. This is the single highest-value quality-of-life feature — phones sleep during the opponent's turn.
-- **Confirmation on destructive plays.** Optional but recommended: playing a 10 into a column you can never extend is a common misclick. A double-tap-to-confirm on high cards is worth considering.
+- **Name the cost, do not interrupt to ask.** Starting a column commits to −20 before a point is scored, and the wash says so before the card leaves. A confirmation step would break the throw into two acts and undo the point of the gesture.
 - **No rules logic on the client.** Use `legalPlacements` and `legalDrawSources` from the view.
 - **Sort hand by colour then value** by default. Add a toggle for draw order if you want.
 - **Waiting state must be calm.** When it's not your turn, show the opponent's last action and nothing tappable. Don't show a spinner — it implies something is broken.
 
 ### Copy guidance
 
-Buttons name what happens: "Play to Blue", not "Confirm". The toast after says "Played blue 7". Same vocabulary throughout.
+Labels name what happens: "Play to Blue", not "Confirm" — on the wash behind a carried card and on the hidden buttons alike. Same vocabulary throughout.
 
 Errors state the problem and the fix: "Blue 4 is too low — the column is at 7." Not "Invalid move."
 
@@ -684,15 +681,22 @@ lost-cities/
 │   │   ├── table/
 │   │   │   ├── Table.tsx
 │   │   │   ├── Column.tsx
-│   │   │   ├── DiscardRow.tsx
+│   │   │   ├── DiscardRow.tsx   # and the one reach the table takes
+│   │   │   ├── drawGesture.ts   # whether a pull was toward the right seat
+│   │   │   ├── flights.ts       # a TableEvent -> a card's journey
 │   │   │   └── RoundEnd.tsx
 │   │   ├── phone/
 │   │   │   ├── Phone.tsx
-│   │   │   ├── Hand.tsx
-│   │   │   ├── PlaceActions.tsx
-│   │   │   └── DrawTargets.tsx
+│   │   │   ├── Hand.tsx         # the row, the carry, the throw
+│   │   │   ├── gesture.ts       # press/move/release, as a reducer
+│   │   │   ├── throw.ts         # which direction meant what
+│   │   │   ├── FlickZones.tsx   # the two washes behind a carried card
+│   │   │   └── HandActions.tsx  # every move as a button, hidden until focused
 │   │   ├── shared/
-│   │   │   └── Card.tsx  # used by both, size-parameterised
+│   │   │   ├── Card.tsx  # used by both, size-parameterised
+│   │   │   ├── CardFlight.tsx   # a card in the air, on either device
+│   │   │   ├── flightPath.ts    # where a card goes when it leaves a screen
+│   │   │   └── carry.ts         # the follow, the tilt, the velocity
 │   │   └── styles/
 │   │       └── tokens.css
 │   └── public/assets/    # generated art goes here, last

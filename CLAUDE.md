@@ -5,8 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 A two-player, three-device implementation of Reiner Knizia's *Lost Cities*
-(Node/Express/`ws` server + React/TypeScript/Vite client). One tablet is a
-read-only shared table; two phones hold private hands. LAN-first personal
+(Node/Express/`ws` server + React/TypeScript/Vite client). One tablet is the
+shared table; two phones, held in landscape, hold the private hands and
+nothing else. LAN-first personal
 project — see `reference/BUILD_SPEC.md` for the full design spec (game
 rules, protocol, visual direction, art pipeline) and `README.md` for the
 condensed architecture summary.
@@ -54,9 +55,13 @@ server/
 client/src/
   session/       socket -> rejoinStore -> session store -> useSession hook
   table/         Table, Column, DiscardRow, RoundEnd, ElevationProfile
-  phone/         Phone, JoinScreen, Hand, PlaceActions, DrawTargets
-  shared/Card.tsx  the one card visual, size-parameterised, used by both
-  platform/      vibrate, wakeLock — the only files touching `navigator`
+                 flights, drawGesture — cards arriving, and the one reach
+  phone/         Phone, JoinScreen, Hand, FlickZones, HandActions
+                 gesture, throw, columnRead — the carry and what it meant
+  shared/        Card.tsx (the one card visual, used by both), CardFlight,
+                 flightPath, carry — the arithmetic of a card in the air
+  platform/      vibrate, wakeLock, orientation, motion — the only files
+                 touching `navigator` / `screen`
   demo/          the server, running in the browser (see below)
 ```
 
@@ -68,9 +73,10 @@ Two rules hold the structure together — preserve them when changing code:
   without opening a real socket.
 - **No component below `Table.tsx` / `Phone.tsx` knows a server exists.**
   They take plain props and render from fixture views — no rules logic
-  lives on the client. The server ships `legalPlacements` and
-  `legalDrawSources` inside each phone's view; the phone only greys out
-  what's absent from those lists.
+  lives on the client. The server ships `legalPlacements` inside each
+  phone's view and `legalDrawSources` inside all three; the phone only
+  mutes what's absent from the first, and the table only arms what's
+  present in the second.
 
 ### The demo (`client/src/demo/`)
 
@@ -148,6 +154,27 @@ re-litigate elsewhere:
 | Views carry no `code` field | The **tablet** generates/persists it, sends via `joinTable` | `client/src/main.tsx` |
 | Re-claiming an occupied seat | Replaces the old connection | `server/room.ts` |
 | A stale socket closing after reconnect | Ignored unless still the bound one | `server/router.ts` |
+| The table has no seat, but draws | `drawFromTable` resolves it from the turn | `server/room.ts` |
+
+### Where the interaction lives
+
+The phone is a hand of cards and nothing else; the table is where you draw.
+Both departed from `reference/BUILD_SPEC.md`, and the spec has been updated
+rather than left to disagree — §7 for the table's one gesture, §8 for the
+landscape phone and the carry-and-throw model.
+
+- **The table is still tap-free.** `drawGesture.ts` explains why a
+  directional pull during a draw phase is safe where a tap was not, and it
+  is the only input the shared display accepts.
+- **Gesture arithmetic is pure and tested alone**, the way `columnMetrics`
+  is: `shared/carry.ts` (the follow, the tilt, the velocity),
+  `phone/throw.ts` (which direction meant what), `table/drawGesture.ts`
+  (whether a pull was toward the right seat). The components own the
+  pointer events and the animation frame, and compute nothing.
+- **Flights are cosmetic and diff-free.** `table/flights.ts` turns a
+  `TableEvent` into a journey, using the view as it stood *before* the cue —
+  the server emits its event and then broadcasts, so a card taken off a
+  discard pile only still exists in the previous view.
 
 ## Known limitations
 
