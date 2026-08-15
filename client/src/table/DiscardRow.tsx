@@ -134,7 +134,8 @@ export function DiscardRow({
     >
       {/* data-deck and data-pile are both the reach's hit test and the
           anchor a drawn card's flight is measured from: the pile survives
-          losing its top card, and the card that left it does not. */}
+          losing its top card, and the card that left it does not. Sits in
+          the shared board grid's gutter track — the deck's own column. */}
       <div
         className={
           `deck deck--${deckUrgency(deckCount)}` +
@@ -144,36 +145,53 @@ export function DiscardRow({
         data-deck
         style={liftStyle({ kind: 'deck' })}
       >
-        <span className="deck__count">{deckCount}</span>
-        <span className="label">left</span>
+        {/* A stack of backs, deep as the deck itself up to a point — purely
+            cosmetic depth, offset by transform only so the last one rendered
+            (the plain, unoffset back) is always the anchor rectOf() measures,
+            regardless of how many leaves sit behind it. */}
+        {Array.from({ length: Math.max(0, Math.min(deckCount, 3) - 1) }, (_, i) => (
+          <div
+            key={i}
+            className="card card--back deck__leaf"
+            style={{ '--d': i + 1 } as React.CSSProperties}
+            aria-hidden="true"
+          />
+        ))}
+        {deckCount > 0 && <div className="card card--back" aria-hidden="true" />}
+        <span className="deck__count" aria-hidden="true">
+          {deckCount}
+        </span>
+        <span className="sr-only">{deckCount} cards left in the deck</span>
       </div>
 
-      <div className="discard-row__piles">
-        {COLOURS.map((colour) => {
-          const top = discardTops[colour];
-          const source: DrawSource = { kind: 'discard', colour };
-          return (
-            <div
-              className={
-                'discard-row__pile' +
-                (top && top.id === arrivingId ? ' is-arriving' : '') +
-                (armed && legalColours.has(colour) ? ' is-drawable' : '') +
-                liftClass(source)
-              }
-              key={colour}
-              data-pile={colour}
-              data-card-id={top?.id}
-              style={liftStyle(source)}
-            >
-              {top ? (
-                <Card card={top} size="md" />
-              ) : (
-                <CardSlot colour={colour} size="md" label={`${colour} discard empty`} />
-              )}
-            </div>
-          );
-        })}
-      </div>
+      {/* The five piles land in the gutter's five sibling tracks, in
+          COLOURS order — the same order .board__side's lanes use, so a pile
+          and its own column always share a track number. No wrapper: they
+          are direct grid items of .discard-row now. */}
+      {COLOURS.map((colour) => {
+        const top = discardTops[colour];
+        const source: DrawSource = { kind: 'discard', colour };
+        return (
+          <div
+            className={
+              'discard-row__pile' +
+              (top && top.id === arrivingId ? ' is-arriving' : '') +
+              (armed && legalColours.has(colour) ? ' is-drawable' : '') +
+              liftClass(source)
+            }
+            key={colour}
+            data-pile={colour}
+            data-card-id={top?.id}
+            style={liftStyle(source)}
+          >
+            {top ? (
+              <Card card={top} size="md" />
+            ) : (
+              <CardSlot colour={colour} size="md" label={`${colour} discard empty`} />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -396,10 +396,10 @@ export function Phone({
 }
 
 /**
- * Shown only in portrait, by CSS alone.
+ * Shown only in landscape, by CSS alone.
  *
  * No orientation listener and no JS branch: a media query cannot get out of
- * step with the layout it is guarding, and the layout below it is landscape
+ * step with the layout it is guarding, and the layout below it is portrait
  * from top to bottom.
  */
 function RotateGate() {

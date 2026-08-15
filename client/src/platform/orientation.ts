@@ -2,7 +2,7 @@
 //
 // Best-effort by design. Screen Orientation locking is only permitted from a
 // fullscreen or installed context, so on an ordinary browser tab this does
-// nothing at all and that is fine: the layout's own landscape branch is what
+// nothing at all and that is fine: the layout's own rotate gate is what
 // actually handles a sideways phone. This is the bonus for a player who has
 // added the game to their home screen.
 //

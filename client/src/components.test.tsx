@@ -35,7 +35,7 @@ import { columnExtent, columnMetrics, sideMetrics } from './table/columnMetrics'
 import { planFlight } from './table/flights';
 import { JoinCode } from './table/JoinCode';
 import { qrMatrix, qrPath } from './table/qrCode';
-import { SeatInvite, SeatSlot } from './table/Table';
+import { Lane, SeatInvite, SeatPlate, SeatSlot } from './table/Table';
 import { JoinScreen } from './phone/JoinScreen';
 import { Phone } from './phone/Phone';
 import { createInMemoryRejoinStore } from './session/rejoinStore';
@@ -135,6 +135,109 @@ describe('Column', () => {
     expect(screen.getByLabelText('blue wager')).toBeTruthy();
     expect(screen.getByLabelText('blue 4')).toBeTruthy();
     expect(screen.getByLabelText('blue 9')).toBeTruthy();
+  });
+});
+
+describe('a lane: a column and its own live score', () => {
+  it('shows no score for an unstarted column', () => {
+    const { container } = render(<Column colour="white" cards={[]} direction="down" />);
+    // Lane itself isn't rendered here — this pins the source Lane reads:
+    // an empty column has nothing for scoreExpedition to be asked about.
+    expect(container.querySelector('.lane__score')).toBeNull();
+  });
+
+  it('labels a losing column with its negative score', () => {
+    const { container } = render(
+      <Lane colour="blue" cards={[num('blue', 9)]} direction="down" arrivingId={null} />,
+    );
+    // (9 - 20) * 1 = -11 — a lone low card starting a column always loses.
+    const score = container.querySelector('.lane__score');
+    expect(score?.textContent).toBe('-11');
+    expect(score?.className).toContain('is-negative');
+  });
+
+  it('signs a winning column, and drops the negative class', () => {
+    const { container } = render(
+      <Lane
+        colour="blue"
+        cards={[num('blue', 10), num('blue', 9), num('blue', 8)]}
+        direction="down"
+        arrivingId={null}
+      />,
+    );
+    // (10+9+8 - 20) * 1 = 7
+    const score = container.querySelector('.lane__score');
+    expect(score?.textContent).toBe('+7');
+    expect(score?.className).not.toContain('is-negative');
+  });
+
+  it('carries the top/bottom class through to the lane itself', () => {
+    const { container: top } = render(
+      <Lane colour="red" cards={[num('red', 5)]} direction="up" arrivingId={null} />,
+    );
+    expect(top.querySelector('.lane')?.className).toContain('lane--top');
+
+    const { container: bottom } = render(
+      <Lane colour="red" cards={[num('red', 5)]} direction="down" arrivingId={null} />,
+    );
+    expect(bottom.querySelector('.lane')?.className).toContain('lane--bottom');
+  });
+});
+
+describe('a seat plate: the player at the edge of their own side', () => {
+  function seatPlayer(overrides: Partial<PublicPlayerView> = {}): PublicPlayerView {
+    return {
+      seat: 0,
+      name: 'Paul',
+      connected: true,
+      handCount: 8,
+      expeditions: { yellow: [], blue: [], white: [], green: [], red: [] },
+      roundScores: [10, -5],
+      currentRoundScore: 3,
+      ...overrides,
+    };
+  }
+
+  it('shows the running total, not just the current round', () => {
+    const { container } = render(
+      <SeatPlate player={seatPlayer()} active={false} phase="place" flipped={false} />,
+    );
+    // 10 + -5 + 3 = 8
+    expect(container.querySelector('.seat-plate__score')?.textContent).toBe('8');
+  });
+
+  it('names the phase and hand size only for the player whose turn it is', () => {
+    const { container: waiting } = render(
+      <SeatPlate player={seatPlayer()} active={false} phase="place" flipped={false} />,
+    );
+    expect(waiting.querySelector('.seat-plate__turn')).toBeNull();
+    expect(waiting.querySelector('.seat-plate')?.className).not.toContain('is-active');
+
+    const { container: active } = render(
+      <SeatPlate player={seatPlayer()} active phase="draw" flipped={false} />,
+    );
+    expect(active.querySelector('.seat-plate__turn')?.textContent).toContain('Drawing a card');
+    expect(active.querySelector('.seat-plate__turn')?.textContent).toContain('8 in hand');
+    expect(active.querySelector('.seat-plate')?.className).toContain('is-active');
+  });
+
+  it('carries the flip class only for the player sitting opposite', () => {
+    const { container: near } = render(
+      <SeatPlate player={seatPlayer()} active={false} phase="place" flipped={false} />,
+    );
+    expect(near.querySelector('.seat-plate')?.className).not.toContain('seat-plate--flipped');
+
+    const { container: far } = render(
+      <SeatPlate player={seatPlayer()} active={false} phase="place" flipped />,
+    );
+    expect(far.querySelector('.seat-plate')?.className).toContain('seat-plate--flipped');
+  });
+
+  it('says so when the player has dropped', () => {
+    const { container } = render(
+      <SeatPlate player={seatPlayer({ connected: false })} active={false} phase="place" flipped={false} />,
+    );
+    expect(container.querySelector('.seat-plate__offline')).toBeTruthy();
   });
 });
 
@@ -1186,6 +1289,27 @@ describe('the discard row', () => {
     reach(container.querySelector('[data-pile="green"]') as HTMLElement, 120);
     expect(onDraw).not.toHaveBeenCalled();
     expect(container.querySelector('.discard-row')?.className).not.toContain('is-armed');
+  });
+
+  it('draws the deck as a stack of backs, and keeps the anchor addressable', () => {
+    const { container } = render(<DiscardRow deckCount={44} discardTops={noTops} />);
+
+    const deck = container.querySelector('[data-deck]');
+    expect(deck).toBeTruthy();
+    expect(deck?.querySelectorAll('.card--back').length).toBeGreaterThan(0);
+    // Capped at 3 for depth, however many cards are actually left.
+    expect(deck?.querySelectorAll('.card--back').length).toBeLessThanOrEqual(3);
+    expect(deck?.querySelector('.deck__count')?.textContent).toBe('44');
+    expect(deck?.className).toContain('deck--normal');
+  });
+
+  it('shows no backs once the deck is empty, count included', () => {
+    const { container } = render(<DiscardRow deckCount={0} discardTops={noTops} />);
+
+    const deck = container.querySelector('[data-deck]');
+    expect(deck?.querySelectorAll('.card--back').length).toBe(0);
+    expect(deck?.querySelector('.deck__count')?.textContent).toBe('0');
+    expect(deck?.className).toContain('deck--critical');
   });
 
   it('draws the pile that was pulled toward the player on turn', () => {

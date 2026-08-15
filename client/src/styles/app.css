@@ -112,8 +112,9 @@ button.card:not(:disabled):active {
   opacity: 0.45;
 }
 
-/* A card nobody has seen: what a draw off the deck looks like in flight.
-   Only ever rendered inside .card-flight — the game shows no other backs. */
+/* A card nobody has seen: what a draw off the deck looks like in flight, and
+   what the deck itself is (.deck below) — the only two places a back
+   renders. */
 .card--back {
   width: var(--card-width);
   aspect-ratio: 2 / 3;
@@ -153,111 +154,221 @@ button.card:not(:disabled):active {
   user-select: none;
 }
 
-/* Both bars own a stacking layer above the board. .column is position:
-   relative (its elevation ridge is absolutely positioned inside it), and a
-   positioned element paints above static siblings — so an overflowing column
-   used to draw straight over the scores and the turn text, which is how a
-   layout bug turned into unreadable state. The background makes the
-   occlusion opaque rather than a pile-up. */
-.status-bar,
-.turn-bar {
+/* The playing board: five bands sharing one column template — two name
+   rows, two expedition sides, one discard row in the middle — so a column,
+   its own colour's discard pile, and the score under it are the same track
+   number in three different grids. That is the whole alignment mechanism.
+   isolation: isolate closes the stacking context so the bands' z-indices
+   below are a system of their own; nothing outside can interleave with
+   them. */
+.board {
+  --gap: 1rem;
+  --pile-w: min(4.5rem, 9svh);
+  /* The deck's gutter, one fixed track ahead of the five colour tracks.
+     rem/svh only, never a cq unit: .board__side is a size container and
+     .discard-row is not, so a cq unit here would resolve against different
+     boxes in the two and the three templates could silently disagree about
+     where track 2 starts. */
+  --gutter-w: calc(var(--pile-w) + 1.5rem);
+  --board-cols: var(--gutter-w) repeat(5, minmax(0, 1fr));
+
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 0.5rem;
+  isolation: isolate;
+}
+
+/* One template, three separate elements. minmax(0, 1fr), never bare 1fr:
+   1fr is minmax(auto, 1fr), and the auto floor differs per band (a card's
+   min-content width in a side, a pile's in the discard row) — bare 1fr
+   tracks could disagree about where track 3 starts at some sizes and agree
+   at others. No band may carry inline padding or a border either: cq units
+   and grid track positions are both measured from the content box, and a
+   band-local inset would shear that band's tracks off the other two. */
+.name-row,
+.discard-row,
+.board__side {
+  display: grid;
+  grid-template-columns: var(--board-cols);
+  column-gap: var(--gap);
+}
+
+/* ---------- the name rows ---------- */
+
+.name-row {
   position: relative;
   z-index: 1;
-  display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.4rem 0;
+  padding-block: 0.35rem;
+  /* Opaque, and above the sides: this is what the status/turn bars used to
+     do for the board's outer edges before overflow: hidden on .board__side
+     made it unnecessary for spillover, but a deep column's own top card can
+     still legitimately reach the band's own edge. */
   background: var(--paper);
-  border-bottom: 1px solid var(--rule);
 }
 
-.turn-bar {
-  border-bottom: none;
-  border-top: 1px solid var(--rule);
-  margin-top: auto;
+.round-chip {
+  grid-column: 1;
+  justify-self: center;
 }
 
-.turn-bar__who {
-  font-family: var(--font-numeral);
-  font-size: 1.6rem;
-  font-weight: 600;
-}
-
-.status-bar__scores {
-  display: flex;
-  gap: 2rem;
-}
-
-.score {
+.seat-plate {
+  grid-column: 2 / -1;
   display: flex;
   align-items: baseline;
-  gap: 0.5rem;
+  justify-content: center;
+  gap: 1.5rem;
   opacity: 0.5;
+  transition: opacity var(--motion);
 }
 
-.score.is-active {
+.seat-plate.is-active {
   opacity: 1;
 }
 
-.score.is-active .score__name::before {
+.seat-plate.is-active .seat-plate__name::before {
   content: '● ';
 }
 
-.score__name {
+.seat-plate__name {
   font-size: 0.85rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.score__value {
+.seat-plate__score {
   font-family: var(--font-numeral);
   font-size: 1.8rem;
   font-weight: 700;
 }
 
-.score__offline {
+.seat-plate__turn {
+  white-space: nowrap;
+}
+
+.seat-plate__offline {
   color: var(--danger);
 }
 
-/* Cards are sized from the height this box actually has, not from a constant.
-   container-type: size is what makes 100cqh below mean "this side's height",
-   so the geometry adapts with no ResizeObserver and no measurement in JS —
-   Table.tsx supplies only --card-frac and --show, both pure functions of the
-   longest column. Before this, a 3-card column was 190px tall in a 128px
-   band and simply spilled out of the row.
+/* Turned to face the player sitting opposite. Scoped to this leaf alone,
+   never to .board__side: that element already owns a translateX for its
+   own stair, so a rotation there would compose with it and step the stair
+   the wrong way — and container-type: size already makes it a containing
+   block risk for a rotated position: fixed descendant, which a CardFlight
+   is. Neither risk exists on a plain flex row of spans. */
+.seat-plate--flipped {
+  transform: rotate(180deg);
+}
+
+/* ---------- the expedition sides ---------- */
+
+/* Cards are sized from the height this box actually has, not from a
+   constant. container-type: size is what makes 100cqh below mean "this
+   side's height", so the geometry adapts with no ResizeObserver and no
+   measurement in JS — Table.tsx supplies only --card-frac and --show, both
+   pure functions of the longest column. --score-h is reserved out of the
+   band *before* those metrics are applied, so sideMetrics()'s "the column
+   fills exactly one band" stays true with the score label in place —
+   neither JS function had to learn about it.
 
    overflow: hidden is the backstop for the one case the arithmetic cannot
-   fit (past 12 cards, which this game cannot deal); the padding keeps the
-   first column's elevation ridge, which sits 0.9rem to its left, inside the
-   box that is now clipping. */
+   fit (past 12 cards, which this game cannot deal). */
 .board__side {
-  --card-h: min(9rem, calc(var(--card-frac, 0.5) * 100cqh));
+  --score-h: 1.5rem;
+  --card-h: min(9rem, calc(var(--card-frac, 0.5) * (100cqh - var(--score-h))));
   --card-w: calc(var(--card-h) / 1.5);
-  /* The cell one column gets: the grid is five tracks with four 1rem gaps,
-     and cqw is this box's content width. Spelled out because the stair below
-     has to know how far it may run, and only the CSS knows this number. */
-  --col-w: calc((100cqw - 4rem) / 5);
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 1rem;
+  /* Six tracks, five gaps, one of them the fixed gutter — 100cqw is this
+     box's own content width. Safe here because it resolves in a real
+     property on a *descendant* (.lane, .column) below, never in a property
+     on .board__side itself: a container query unit written into a
+     container's own declaration resolves against its ancestor container
+     instead, silently, and would size against the small viewport here. */
+  --col-w: calc((100cqw - var(--gutter-w) - 5 * var(--gap)) / 5);
   flex: 1;
   min-height: 0;
   container-type: size;
-  padding-left: 1rem;
   overflow: hidden;
+  position: relative;
+  z-index: 0;
 }
 
 .board__side .card {
   --card-width: var(--card-w);
 }
 
-.board__side--top {
-  align-items: end;
+/* .board__side keeps the default stretch here — deliberately not end/start
+   the way the old single-level grid used, since a lane needs a *definite*
+   height to resolve its own minmax(0, 1fr) row against. Which edge a
+   column hangs from is now the lane's own business, one level down. */
+
+/* One track's worth of a side: the column and, on the edge facing the
+   centre of the table, that expedition's live score. The score is a
+   sibling of .column, never a child — .column carries a translateX for its
+   own stair (below), so a score inside it would drift left as the
+   expedition grew and stop sitting over its own discard pile. .board__side
+   has no gutter-occupying child of its own, so each lane sets its grid
+   column explicitly (Table.tsx) rather than relying on auto-placement,
+   which would otherwise pack all five into tracks 1..5 instead of 2..6. */
+.lane {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
 }
 
-.board__side--bottom {
-  align-items: start;
+.lane--top {
+  grid-template-rows: minmax(0, 1fr) var(--score-h);
+}
+
+.lane--bottom {
+  grid-template-rows: var(--score-h) minmax(0, 1fr);
+}
+
+/* Explicit rows rather than relying on DOM order: Table.tsx renders the
+   score before the column for a top lane (so the rotated label reads in
+   the right place in source order for assistive tech), which would
+   otherwise auto-place it into the big row instead of the score rail. */
+.lane--top .column {
+  grid-row: 1;
+  /* The column hangs from the edge nearest the centre — the bottom of its
+     own 1fr row, where the score rail and the discard row sit — and grows
+     upward away from it. Matches the old .board__side--top{align-items:end}
+     this replaced, moved down one level. */
+  align-self: end;
+}
+
+.lane--bottom .lane__score {
+  grid-row: 1;
+}
+
+.lane--bottom .column {
+  grid-row: 2;
+  align-self: start;
+}
+
+.lane__score {
+  justify-self: center;
+  align-self: center;
+  font-family: var(--font-numeral);
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1;
+  /* The rail is a fixed track; a wrapped label would eat into the column's
+     own share of the band without sideMetrics() ever knowing. */
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.lane__score.is-negative {
+  color: var(--danger);
+}
+
+/* Read by the player opposite: rotated to face them, and — being the row
+   nearest the discard band — placed in the second row of the lane's grid. */
+.lane--top .lane__score {
+  grid-row: 2;
+  transform: rotate(180deg);
 }
 
 /* A column is a staircase, not a stack: each card steps right as well as
@@ -339,25 +450,29 @@ button.card:not(:disabled):active {
   margin-bottom: calc(-1 * var(--card-h) * (1 - var(--show, 0.38)));
 }
 
-/* The centre strip was taking as much height as a whole expedition side on a
-   tablet — 126px of 520. Capped against the viewport so the two sides get
-   the room, since they are the part that has to grow. */
+/* The centre strip: one grid, sharing --board-cols with the two sides, so
+   the deck sits in the gutter track and each pile lands under its own
+   column above and above its own column below. Its height was once taking
+   as much room as a whole expedition side on a tablet — 126px of 520 — so
+   the card width stays capped against the viewport (--pile-w, on .board)
+   rather than growing with the row. */
 .discard-row {
-  display: flex;
   align-items: center;
-  gap: 2rem;
-  padding: 0.5rem 0;
+  padding-block: 0.5rem;
   border-top: 1px solid var(--rule);
   border-bottom: 1px solid var(--rule);
+  /* Opaque, and above both sides — this is what the deleted status/turn
+     bars used to do for the board's outer edges. No overflow clipping: the
+     reach lifts a pulled card out of this band by design, all the way past
+     REACH_PX and beyond (drawGesture.ts), and the lift is deliberately not
+     undone on a take (see the comment in DiscardRow.tsx). */
+  position: relative;
+  z-index: 2;
+  background: var(--paper);
 }
 
 .discard-row .card {
-  --card-width: min(4.5rem, 9svh);
-}
-
-.discard-row__piles {
-  display: flex;
-  gap: 1rem;
+  --card-width: var(--pile-w);
 }
 
 /* ---- the one gesture the table takes ---- */
@@ -371,6 +486,16 @@ button.card:not(:disabled):active {
 .discard-row__pile,
 .deck {
   transition: transform var(--motion-fast), filter var(--motion-fast);
+}
+
+/* Centred in its own track, and sized to the card rather than the track it
+   sits in: a grid item stretches its track by default, and this element is
+   also the flight anchor CardFlight measures a landing against — a
+   track-wide anchor would make the arriving card's scale ratio come out
+   ≥ 1 and land it full-size on top of a pile half its width. */
+.discard-row__pile {
+  justify-self: center;
+  width: var(--pile-w);
 }
 
 /* Available to reach for. A lift rather than a glow: the affordance being
@@ -395,26 +520,55 @@ button.card:not(:disabled):active {
   filter: grayscale(0.6);
 }
 
+/* A short stack of backs with the count over it, in the gutter track. The
+   explicit width and aspect-ratio are not decoration: rectOf() (Table.tsx)
+   discards any anchor whose width comes out 0, and a deck-draw flight would
+   then silently stop happening. The leaves are offset by transform only, so
+   however many there are, the anchor box — this element — stays exactly
+   the size of the top card. */
 .deck {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 5rem;
+  position: relative;
+  display: grid;
+  place-items: center;
+  justify-self: center;
+  width: var(--pile-w);
+  aspect-ratio: 2 / 3;
+}
+
+.deck .card--back {
+  grid-area: 1 / 1;
+}
+
+/* Behind the top card, stepped up and left. Purely cosmetic depth — the
+   count is the only thing that actually reads at a glance. */
+.deck__leaf {
+  transform: translate(calc(var(--d, 0) * -0.16rem), calc(var(--d, 0) * -0.16rem));
+  opacity: 0.7;
 }
 
 .deck__count {
+  grid-area: 1 / 1;
+  z-index: 1;
+  padding: 0.08em 0.3em;
+  border-radius: var(--radius);
   font-family: var(--font-numeral);
-  font-size: 2.6rem;
+  font-size: calc(var(--pile-w) * 0.52);
   font-weight: 700;
   line-height: 1;
+  /* A chip, not coloured text: --warn/--danger read fine as ink on --paper,
+     but not against the striped ink-coloured back this now sits on. */
+  background: var(--paper);
+  color: var(--ink);
 }
 
 .deck--low .deck__count {
-  color: var(--warn);
+  background: var(--warn);
+  color: var(--paper);
 }
 
 .deck--critical .deck__count {
-  color: var(--danger);
+  background: var(--danger);
+  color: var(--paper);
 }
 
 /* ---------- shared screens ---------- */
@@ -571,9 +725,9 @@ button.card:not(:disabled):active {
 }
 /* ---------- phone ---------- */
 
-/* Landscape. The phone is held sideways in two hands, like a hand of cards,
-   which is also the only shape in which a row of eight cards is worth
-   looking at. Portrait gets the rotate gate below and nothing else. */
+/* Portrait. The phone is held upright in two hands, thumbs on the row at
+   the bottom, the way a hand of cards actually gets held. Landscape gets
+   the rotate gate below and nothing else. */
 .phone {
   display: flex;
   flex-direction: column;
@@ -730,18 +884,25 @@ button.card:not(:disabled):active {
    Card width is capped three ways: never wider than a comfortable card,
    never so tall two rows overflow what's left of the screen once the
    headline and safe areas are out of it, and never wider than its share of
-   the row it's in. The height budget is svh rather than a container query:
-   .hand no longer needs container-type for anything else, and the actual
-   number is a documented approximation, checked against a real 390×844
-   viewport in Playwright rather than derived exactly — device chrome makes
-   an exact fraction unknowable from CSS alone. */
+   the row it's in. That last cap reads .hand's own width via a container
+   query rather than a plain percentage: a percentage on .card's width
+   resolves against .card's *containing block*, which is .hand__slot — and
+   .hand__slot is itself auto-sized to its card's content (flex: 0 0 auto),
+   so a percentage there is circular and silently resolves to 0. cqw sidesteps
+   that entirely, resolving straight against the nearest container-type
+   ancestor regardless of how any element in between is sized. The height
+   budget stays svh rather than cqh — an exact fraction of the phone's
+   available height is not knowable from CSS alone once device chrome is
+   involved, so it is a documented approximation, checked against a real
+   390×844 viewport in Playwright. */
 .hand {
+  container-type: inline-size;
   --hand-gap: 0.5rem;
   --row-budget: calc((46svh - var(--hand-gap)) / 2);
   --card-w: min(
     8rem,
     calc(var(--row-budget) / 1.5),
-    calc((100% - (var(--per-row, 4) - 1) * var(--hand-gap)) / var(--per-row, 4))
+    calc((100cqw - (var(--per-row, 4) - 1) * var(--hand-gap)) / var(--per-row, 4))
   );
 
   position: relative;
