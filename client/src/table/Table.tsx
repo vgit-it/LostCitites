@@ -361,6 +361,9 @@ export function Lane({
   direction: 'up' | 'down';
   arrivingId: string | null;
 }) {
+  // `RoundEnd.tsx` is the precedent for this import: display recomputation
+  // of a pure formula against cards the view already carries, not client
+  // rules logic.
   const score = cards.length > 0 ? scoreExpedition(cards) : null;
   const scoreLabel = score !== null && (
     <span className={`lane__score${score < 0 ? ' is-negative' : ''}`}>

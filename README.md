@@ -17,7 +17,7 @@ Open the printed LAN address on each device:
 | Device | Path |
 |---|---|
 | Tablet (landscape) | `/table` |
-| Each phone (landscape) | `/play` |
+| Each phone (portrait) | `/play` |
 
 The tablet shows a 3-digit room code, plus a QR per open seat — scan it and
 the phone lands on the join screen with the code and seat already filled in,
@@ -94,7 +94,7 @@ client/src/
   table/         Table, Column, DiscardRow, RoundEnd, ElevationProfile
                  flights, drawGesture, qrCode, JoinCode
   phone/         Phone, JoinScreen, Hand, FlickZones, HandActions
-                 gesture, throw, columnRead
+                 gesture, throw, columnRead, handRows
   shared/        Card (the one card visual, used by both), CardFlight,
                  flightPath, carry, invite
   platform/      vibrate, wakeLock, orientation, motion — the only files

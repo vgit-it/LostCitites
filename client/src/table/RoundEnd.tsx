@@ -1,9 +1,10 @@
 // Round-end and match-end screens. Shows the arithmetic, not just totals —
 // people want to see why they lost (BUILD_SPEC §7).
 //
-// The only client file that imports rules.ts, and only `scoreExpedition`:
-// scoreBreakdown/scorePlayer take a PlayerState, which the wire views do not
-// carry. This is display recomputation of a pure formula, not client rules.
+// One of two client files that import rules.ts — this one and Table.tsx,
+// both for `scoreExpedition` alone. scoreBreakdown/scorePlayer take a
+// PlayerState, which the wire views do not carry. This is display
+// recomputation of a pure formula, not client rules.
 
 import { scoreExpedition } from '@shared/rules';
 import {

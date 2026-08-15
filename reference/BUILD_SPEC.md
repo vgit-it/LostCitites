@@ -33,7 +33,7 @@ Personal project, LAN-first, no public release.
 **In scope**
 - Exactly 2 players, 3 rounds, standard rules.
 - One shared table display (tablet, landscape).
-- Two phone controllers (landscape).
+- Two phone controllers (portrait).
 - Single room at a time. 3-digit join code.
 - Local network hosting.
 
@@ -331,27 +331,28 @@ Landscape, tablet, viewed from ~1 metre. **Readability at distance is the primar
 
 ### Layout
 
+One column template runs top to bottom: a fixed gutter for the deck, then
+five tracks, one per colour — so a column, its own colour's discard pile,
+and the live score under it always share an x position.
+
 ```
 ┌───────────────────────────────────────────────────────┐
-│  ROUND 2/3        ● Paul  42        ○ Aditi  −11      │  status bar
+│ ROUND 2/3          ● Aditi  −11  Placing a card · 6…   │  name row (rotated
+├───────────────────────────────────────────────────────┤   to face Aditi)
+│        [Y]   [B]   [W]   [G]   [R]  ← opponent columns │
+│         9     –     7     –     4      (grow upward)   │
+│         6           5           2                      │
+│        −8    –    12    –    −3    ← live score, same  │
+├───────────────────────────────────────────────────────┤    rotation
+│  ┌──┐   ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐                    │
+│  │44│   │ Y│  │ B│  │ W│  │ G│  │ R│   ← deck + discards│
+│  └──┘   └──┘  └──┘  └──┘  └──┘  └──┘                    │
 ├───────────────────────────────────────────────────────┤
-│                                                       │
-│   [Y]  [B]  [W]  [G]  [R]      ← opponent columns     │
-│    9    –    7    –    4          (grow upward)       │
-│    6         5         2                              │
-│                                                       │
+│        +5    –    16    –     8    ← live score        │
+│        [Y]   [B]   [W]   [G]   [R]  ← your columns      │
+│         7           8     9            (grow downward)  │
 ├───────────────────────────────────────────────────────┤
-│   ┌──┐  ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐                     │
-│   │44│  │ Y│ │ B│ │ W│ │ G│ │ R│    ← deck + discards │
-│   └──┘  └──┘ └──┘ └──┘ └──┘ └──┘                     │
-├───────────────────────────────────────────────────────┤
-│                                                       │
-│    3    –    2    4    –       ← your columns         │
-│    7         8    9               (grow downward)     │
-│   [Y]  [B]  [W]  [G]  [R]                             │
-│                                                       │
-├───────────────────────────────────────────────────────┤
-│  Paul's turn — placing a card              8 cards ●● │  turn bar
+│ ● Paul  42       Placing a card — 8 cards in hand       │  name row
 └───────────────────────────────────────────────────────┘
 ```
 
@@ -359,9 +360,10 @@ Landscape, tablet, viewed from ~1 metre. **Readability at distance is the primar
 
 - **Card numerals minimum 32px** at tablet size. Colour alone is insufficient; every card shows its number.
 - **Columns overlap vertically** with ~35% of each card visible — enough to read the number.
-- **Draw pile count always visible.** Turns amber below 10, red below 5.
-- **Turn indicator unmissable.** Whose turn, and which phase (`placing` vs `drawing`). A subtle glow on the active player's side is not enough — use an explicit text line.
-- **Live round score** per player, recomputed each broadcast. Optional but very useful for pacing decisions.
+- **Draw pile count always visible.** Turns amber below 10, red below 5. The deck itself renders as a short stack of card backs with the count as a chip over it, so it thins visibly as the round closes.
+- **Turn indicator unmissable.** Whose turn, and which phase (`placing` vs `drawing`). Lives on the active player's own name plate, at the edge of their side of the table, next to their hand count — not a subtle glow.
+- **Live score**, per player at their own name plate and per column beside its expedition, both recomputed each broadcast.
+- **Read by the player it belongs to.** The far player's name, score, and column scores are rotated 180° to face them, since they are looking at the table from the opposite end. The cards themselves are never rotated — both players read every numeral upright.
 - **One gesture, and no taps.** The table is read-only except for the draw: during a draw phase the player to move presses a legal pile and pulls it toward their own edge of the table, and the card leaves for their phone. Nothing responds to a tap, which is what the original "no input" rule was protecting — an elbow does not pull toward a seat, and the other player's stray swipe travels the wrong way and is refused. Implemented in `client/src/table/drawGesture.ts`; the legal piles arrive as `TableView.legalDrawSources`, so the table does no rules work of its own.
 - **Cards arrive and leave.** A placed card flies in over its own player's edge and lands on its column or discard pile; a drawn card leaves the pile toward the player taking it. Cosmetic, driven by `TableEvent`; the next `state` is still the source of truth.
 - **Keep screen awake.** Wake Lock API, with a fallback of a looping invisible video element if running over plain HTTP.
@@ -389,23 +391,33 @@ WHITE    —                                            = 0
 
 ## 8. Phone client
 
-Landscape, held in two hands like a hand of cards. The player is looking up at the table most of the time, so the phone shows **only their hand** — no deck, no discards, no expedition columns. All of that is on the tablet in front of them, and a small copy of it here asks them to play the game twice. Portrait shows a rotate prompt and nothing else.
+Portrait, held upright in two hands like a hand of cards, thumbs on the row
+at the bottom. The player is looking up at the table most of the time, so
+the phone shows **only their hand** — no deck, no discards, no expedition
+columns. All of that is on the tablet in front of them, and a small copy of
+it here asks them to play the game twice. Landscape shows a rotate prompt
+and nothing else.
 
 ### Layout
 
 ```
-┌──────────────────────────────────────────────┐
-│                  PLAY CARD                   │  ← one line of state
-│                                              │
-│   ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐   │
-│   │2 │ │5 │ │W │ │9 │ │3 │ │7 │ │4 │ │10│   │  ← the hand, and
-│   └──┘ └──┘ └──┘ └──┘ └──┘ └──┘ └──┘ └──┘   │     nothing else
-│                                              │
-└──────────────────────────────────────────────┘
+┌────────────────────┐
+│     PLAY CARD      │  ← one line of state
+│                    │
+│  ┌──┐┌──┐┌──┐┌──┐  │
+│  │2 ││5 ││W ││9 │  │  ← the hand, wrapped
+│  └──┘└──┘└──┘└──┘  │     into balanced rows,
+│  ┌──┐┌──┐┌──┐┌──┐  │     and nothing else
+│  │3 ││7 ││4 ││10│  │
+│  └──┘└──┘└──┘└──┘  │
+│                    │
+└────────────────────┘
 ```
 
-The row divides the width it has by the cards in it, so a hand played down
-to three cards gets three big cards.
+Each row divides the width it has by the cards in it, so a hand played down
+to four or fewer stays a single row of big cards. `handRows.ts` decides how
+many sit in the first row (never more than two rows in practice, since a
+hand starts at 8 cards).
 
 ### Interaction model
 

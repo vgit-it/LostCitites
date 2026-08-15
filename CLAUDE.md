@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A two-player, three-device implementation of Reiner Knizia's *Lost Cities*
 (Node/Express/`ws` server + React/TypeScript/Vite client). One tablet is the
-shared table; two phones, held in landscape, hold the private hands and
+shared table; two phones, held upright, hold the private hands and
 nothing else. LAN-first personal
 project — see `reference/BUILD_SPEC.md` for the full design spec (game
 rules, protocol, visual direction, art pipeline) and `README.md` for the
@@ -59,6 +59,7 @@ client/src/
                  qrCode, JoinCode — the lobby's per-seat QR
   phone/         Phone, JoinScreen, Hand, FlickZones, HandActions
                  gesture, throw, columnRead — the carry and what it meant
+                 handRows — how many cards sit in the hand's first row
   shared/        Card.tsx (the one card visual, used by both), CardFlight,
                  flightPath, carry — the arithmetic of a card in the air
                  invite — the join URL, written by the tablet and read by the phone
@@ -162,8 +163,8 @@ re-litigate elsewhere:
 
 The phone is a hand of cards and nothing else; the table is where you draw.
 Both departed from `reference/BUILD_SPEC.md`, and the spec has been updated
-rather than left to disagree — §7 for the table's one gesture, §8 for the
-landscape phone and the carry-and-throw model.
+rather than left to disagree — §7 for the table's one gesture and its
+aligned board, §8 for the portrait phone and the carry-and-throw model.
 
 - **The table is still tap-free.** `drawGesture.ts` explains why a
   directional pull during a draw phase is safe where a tap was not, and it
