@@ -185,25 +185,45 @@ export function Hand({
 
   function handlePointerDown(event: React.PointerEvent<HTMLUListElement>): void {
     if (disabled || muted || event.button !== 0) return;
+    // The phone is held in two hands; a second thumb landing mid-throw is
+    // the default grip, not an edge case. It must not steal or interrupt
+    // the carry the first finger already owns.
+    if (gesture.phase === 'carrying') return;
     const id = cardIdAt(event.clientX, event.clientY);
     if (!id) return;
 
     // Captured so the card keeps following even once the finger has left the
     // row — which it will, since a throw ends at the edge of the screen.
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    dispatch({ t: 'down', cardId: id, x: event.clientX, y: event.clientY, at: event.timeStamp });
+    dispatch({
+      t: 'down',
+      cardId: id,
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      at: event.timeStamp,
+    });
   }
 
   function handlePointerMove(event: React.PointerEvent<HTMLUListElement>): void {
-    if (gesture.phase !== 'carrying') return;
-    dispatch({ t: 'move', x: event.clientX, y: event.clientY, at: event.timeStamp });
+    if (gesture.phase !== 'carrying' || event.pointerId !== gesture.pointerId) return;
+    dispatch({ t: 'move', pointerId: event.pointerId, x: event.clientX, y: event.clientY, at: event.timeStamp });
   }
 
   function handlePointerUp(event: React.PointerEvent<HTMLUListElement>): void {
     event.currentTarget.releasePointerCapture?.(event.pointerId);
 
-    const id = gesture.phase === 'carrying' ? gesture.cardId : null;
+    const owner = gesture.phase === 'carrying' && event.pointerId === gesture.pointerId;
     const cancelled = event.type === 'pointercancel';
+
+    if (!owner) {
+      // Not our pointer's release — nothing to classify, and the reducer
+      // itself already ignores a mismatched pointerId.
+      dispatch({ t: cancelled ? 'cancel' : 'up', pointerId: event.pointerId });
+      return;
+    }
+
+    const id = gesture.cardId;
     const outcome: Throw = cancelled
       ? 'return'
       : flickOutcome({
@@ -212,8 +232,15 @@ export function Hand({
           legalTargets: id ? legalPlacements[id] ?? [] : [],
         });
 
-    dispatch({ t: cancelled ? 'cancel' : 'up' });
+    dispatch({ t: cancelled ? 'cancel' : 'up', pointerId: event.pointerId });
     if (id) onThrow?.(id, outcome);
+  }
+
+  function handleLostPointerCapture(event: React.PointerEvent<HTMLUListElement>): void {
+    if (gesture.phase !== 'carrying' || event.pointerId !== gesture.pointerId) return;
+    const id = gesture.cardId;
+    dispatch({ t: 'cancel', pointerId: event.pointerId });
+    if (id) onThrow?.(id, 'return');
   }
 
   const className = [
@@ -244,6 +271,7 @@ export function Hand({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
+      onLostPointerCapture={handleLostPointerCapture}
     >
       {ordered.map((card) => {
         const playable = muted || (legalPlacements[card.id] ?? []).length > 0;

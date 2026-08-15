@@ -9,6 +9,7 @@
 // view. This component only turns throws into intents.
 
 import { useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Card as CardModel, DrawSource, PlaceTarget, PlayerView, Seat } from '@shared/types';
 import { vibrateCommit, vibrateDraw, vibrateReject, vibrateTurnStart } from '../platform/vibrate';
 import { DRAW_FLIGHT_MS, SHAKE_MS } from '../platform/motion';
@@ -254,16 +255,34 @@ export function Phone({
   /**
    * A carried card was let go. Only a throw commits; anything else puts the
    * card back, which is the whole cancel gesture.
+   *
+   * Shakes the same card twice in a row without a flicker: setting the same
+   * id twice is a no-op re-render (Object.is bails), so the CSS animation
+   * would never restart for a repeated refusal of the same card. flushSync
+   * forces a real intermediate render with no card refusing, so the second
+   * `is-refusing` is a genuine mount rather than an unchanged one.
    */
+  function shake(cardId: string): void {
+    vibrateReject();
+    flushSync(() => setRefusingId(null));
+    setRefusingId(cardId);
+  }
+
   const handleThrow = (cardId: string, outcome: Throw) => {
     setCarried(null);
     setArmed(null);
-    if (outcome === 'return' || busy) return;
+    if (outcome === 'return') return;
+    if (busy) {
+      // A legal throw that lands mid round-trip is a real, deliberate move,
+      // not nothing — silently dropping it here (as `|| busy` used to)
+      // looked exactly like the gesture had been ignored.
+      shake(cardId);
+      return;
+    }
     if (outcome === 'refuse') {
       // The wash was already visibly dead, so this was deliberate. Say no out
       // loud rather than silently dropping the gesture.
-      vibrateReject();
-      setRefusingId(cardId);
+      shake(cardId);
       return;
     }
     commit(cardId, outcome);

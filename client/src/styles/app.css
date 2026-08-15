@@ -73,11 +73,15 @@
   letter-spacing: -0.02em;
 }
 
-.card:not(:disabled) {
+/* Scoped to <button>: a non-interactive card is a <div> now (Card.tsx), and
+   :not(:disabled) matches any element that does not support the disabled
+   attribute at all — a plain div included — so an unscoped rule here would
+   put a pointer cursor and a press animation on every card in the app. */
+button.card:not(:disabled) {
   cursor: pointer;
 }
 
-.card:not(:disabled):active {
+button.card:not(:disabled):active {
   transform: translateY(1px);
 }
 
@@ -758,6 +762,16 @@
   /* A vertical drag of the row itself is not a game action in portrait —
      nothing here scrolls, and a stray overscroll must not bounce the page. */
   overscroll-behavior: contain;
+  /* Unconditional, not scoped to .is-carrying: the browser fixes a touch
+     gesture's scroll/back behaviour at the moment it starts, before React
+     has had a chance to add a class in response to the pointerdown that
+     started it. A discard is a leftward throw, which is also the OS
+     interactive-back gesture on both major platforms; scoping this to
+     .is-carrying meant the browser had already decided by the time the
+     class landed, and a discard thrown near the edge could be eaten as a
+     back-swipe instead — a pointercancel that looks exactly like nothing
+     happened. */
+  touch-action: none;
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
@@ -811,11 +825,6 @@
 .hand.is-away {
   opacity: 0.5;
   filter: grayscale(0.5);
-}
-
-/* A card must not be scrolled or text-selected out from under a throw. */
-.hand.is-carrying {
-  touch-action: none;
 }
 
 /* The rest of the hand steps back while one card is up, so the card being

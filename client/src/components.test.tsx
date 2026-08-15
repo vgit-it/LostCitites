@@ -319,6 +319,40 @@ describe('the hand', () => {
     expect(onThrow).toHaveBeenLastCalledWith('blue-2', 'refuse');
   });
 
+  it('keeps a second thumb landing mid-throw from stealing or interrupting the carry', () => {
+    // The phone is held in two hands; a second thumb touching the row while
+    // the first is mid-throw is the default grip, not an edge case.
+    const onThrow = vi.fn();
+    const { container } = render(
+      <Hand
+        cards={[num('blue', 2), num('red', 5)]}
+        legalPlacements={{ 'blue-2': ['discard', 'expedition'], 'red-5': ['discard', 'expedition'] }}
+        onThrow={onThrow}
+      />,
+    );
+
+    const list = container.querySelector('.hand') as HTMLElement;
+    stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
+    fireEvent.pointerDown(list, { clientX: 0, clientY: 200, button: 0, timeStamp: 0, pointerId: 1 });
+
+    // A second finger lands on a different card entirely.
+    stubElementFromPoint(() => container.querySelector('[data-card-id="red-5"]'));
+    fireEvent.pointerDown(list, { clientX: 300, clientY: 200, button: 0, timeStamp: 5, pointerId: 2 });
+
+    // The second finger lifts first — it never started anything, so nothing
+    // fires for it.
+    fireEvent.pointerUp(list, { clientX: 300, clientY: 200, pointerId: 2 });
+    expect(onThrow).not.toHaveBeenCalled();
+
+    // The first finger, which actually owns the carry, throws blue-2 right.
+    stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
+    fireEvent.pointerMove(list, { clientX: THROW_DX + 20, clientY: 200, timeStamp: 400, pointerId: 1 });
+    fireEvent.pointerUp(list, { clientX: THROW_DX + 20, clientY: 200, pointerId: 1 });
+
+    expect(onThrow).toHaveBeenCalledTimes(1);
+    expect(onThrow).toHaveBeenLastCalledWith('blue-2', 'expedition');
+  });
+
   it('puts a card back when it is pressed and simply let go', () => {
     // Distance only. jsdom stamps its own clock on every event — the
     // timeStamp passed to fireEvent is discarded — so a release velocity
@@ -356,6 +390,32 @@ describe('the hand', () => {
     fireEvent.pointerCancel(list, { clientX: THROW_DX + 60, clientY: 200 });
 
     expect(onThrow).toHaveBeenLastCalledWith('blue-2', 'return');
+  });
+
+  it('returns the card if pointer capture is lost mid-carry', () => {
+    // No onLostPointerCapture handler and no window-level fallback meant a
+    // dropped capture — a native drag stealing it, or a browser dropping it
+    // during the ~60x/s re-render the follow loop drives — left the gesture
+    // stuck 'carrying' forever: the rAF loop kept running and the card hung
+    // under a finger that was no longer there.
+    const onThrow = vi.fn();
+    const { container } = render(
+      <Hand
+        cards={[num('blue', 2)]}
+        legalPlacements={{ 'blue-2': ['discard', 'expedition'] }}
+        onThrow={onThrow}
+      />,
+    );
+
+    const list = container.querySelector('.hand') as HTMLElement;
+    stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
+
+    fireEvent.pointerDown(list, { clientX: 0, clientY: 200, button: 0, timeStamp: 0 });
+    fireEvent.pointerMove(list, { clientX: THROW_DX + 60, clientY: 200, timeStamp: 60 });
+    fireEvent.lostPointerCapture(list, { clientX: THROW_DX + 60, clientY: 200 });
+
+    expect(onThrow).toHaveBeenLastCalledWith('blue-2', 'return');
+    expect(list.className).not.toContain('is-carrying');
   });
 
   it('ignores a press that lands between cards', () => {
@@ -912,12 +972,13 @@ describe('what a throw meant', () => {
 });
 
 describe('the gesture machine', () => {
-  const press = { t: 'down', cardId: 'blue-2', x: 100, y: 300, at: 0 } as const;
+  const press = { t: 'down', cardId: 'blue-2', pointerId: 1, x: 100, y: 300, at: 0 } as const;
 
   it('carries a card from the moment it is pressed', () => {
     const state = gestureReducer(initialGesture, press);
     expect(state.phase).toBe('carrying');
     expect(state.cardId).toBe('blue-2');
+    expect(state.pointerId).toBe(1);
     expect(dragOf(state)).toEqual({ x: 0, y: 0 });
   });
 
@@ -928,29 +989,65 @@ describe('the gesture machine', () => {
 
   it('tracks the finger and remembers where it started', () => {
     let state = gestureReducer(initialGesture, press);
-    state = gestureReducer(state, { t: 'move', x: 160, y: 280, at: 30 });
+    state = gestureReducer(state, { t: 'move', pointerId: 1, x: 160, y: 280, at: 30 });
     expect(dragOf(state)).toEqual({ x: 60, y: -20 });
   });
 
   it('collects samples to judge the release by', () => {
     let state = gestureReducer(initialGesture, press);
-    state = gestureReducer(state, { t: 'move', x: 130, y: 300, at: 30 });
-    state = gestureReducer(state, { t: 'move', x: 190, y: 300, at: 60 });
+    state = gestureReducer(state, { t: 'move', pointerId: 1, x: 130, y: 300, at: 30 });
+    state = gestureReducer(state, { t: 'move', pointerId: 1, x: 190, y: 300, at: 60 });
 
     expect(velocityFrom(state.samples)).toBeGreaterThan(0);
   });
 
   it('ignores movement when nothing is being carried', () => {
-    const state = gestureReducer(initialGesture, { t: 'move', x: 500, y: 0, at: 10 });
+    const state = gestureReducer(initialGesture, { t: 'move', pointerId: 1, x: 500, y: 0, at: 10 });
     expect(state).toBe(initialGesture);
   });
 
   it('lets go completely, so nothing carries into the next gesture', () => {
     let state = gestureReducer(initialGesture, press);
-    state = gestureReducer(state, { t: 'move', x: 400, y: 100, at: 40 });
+    state = gestureReducer(state, { t: 'move', pointerId: 1, x: 400, y: 100, at: 40 });
 
-    expect(gestureReducer(state, { t: 'up' })).toEqual(initialGesture);
-    expect(gestureReducer(state, { t: 'cancel' })).toEqual(initialGesture);
+    expect(gestureReducer(state, { t: 'up', pointerId: 1 })).toEqual(initialGesture);
+    expect(gestureReducer(state, { t: 'cancel', pointerId: 1 })).toEqual(initialGesture);
+  });
+});
+
+describe('a second finger must not steal or interrupt a carry', () => {
+  const press = { t: 'down', cardId: 'blue-2', pointerId: 1, x: 100, y: 300, at: 0 } as const;
+
+  it('ignores a second down while one pointer is already carrying', () => {
+    const carrying = gestureReducer(initialGesture, press);
+    const after = gestureReducer(carrying, {
+      t: 'down',
+      cardId: 'red-5',
+      pointerId: 2,
+      x: 400,
+      y: 300,
+      at: 10,
+    });
+    expect(after).toBe(carrying);
+  });
+
+  it('ignores a move from a pointer that never started the carry', () => {
+    const carrying = gestureReducer(initialGesture, press);
+    const after = gestureReducer(carrying, { t: 'move', pointerId: 2, x: 500, y: 0, at: 20 });
+    expect(after).toBe(carrying);
+  });
+
+  it('ignores an up or cancel from a foreign pointer, without resetting the carry', () => {
+    const carrying = gestureReducer(initialGesture, press);
+    expect(gestureReducer(carrying, { t: 'up', pointerId: 2 })).toBe(carrying);
+    expect(gestureReducer(carrying, { t: 'cancel', pointerId: 2 })).toBe(carrying);
+  });
+
+  it('still lets go on the owning pointer once the foreign one has come and gone', () => {
+    let state = gestureReducer(initialGesture, press);
+    state = gestureReducer(state, { t: 'down', cardId: 'red-5', pointerId: 2, x: 400, y: 300, at: 10 });
+    state = gestureReducer(state, { t: 'up', pointerId: 2 });
+    expect(gestureReducer(state, { t: 'up', pointerId: 1 })).toEqual(initialGesture);
   });
 });
 
