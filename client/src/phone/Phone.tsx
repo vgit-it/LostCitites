@@ -17,6 +17,7 @@ import { useWakeLock } from '../platform/wakeLock';
 import {
   useClientView,
   useConnectionStatus,
+  useServerSeq,
   useSession,
   useSessionError,
   useTableEvents,
@@ -81,6 +82,7 @@ export function Phone({
   const view = useClientView();
   const status = useConnectionStatus();
   const error = useSessionError();
+  const seq = useServerSeq();
   useWakeLock();
   usePortraitLock();
 
@@ -111,9 +113,14 @@ export function Phone({
     if (myTurn) vibrateTurnStart();
   }, [myTurn]);
 
+  // Cleared by any server reply, not only a fresh view: a rejected `place`
+  // or `draw` replies with only an `error` (server/room.ts does not
+  // broadcast on a refusal), and keying this on `view` left `busy` — and so
+  // the whole hand — stuck true forever after exactly one refusal, since
+  // nothing else on your own turn produces a new `state`.
   useEffect(() => {
     setBusy(false);
-  }, [view]);
+  }, [seq]);
 
   // A card arriving in this hand — drawn on the table, so it comes in over
   // the top edge, which is the direction the table is in. Driven by a diff
@@ -173,13 +180,20 @@ export function Phone({
   }, [refusingId]);
 
   // The server refused the move: bring the card home and say so.
+  //
+  // Keyed on `seq`, not `error`: two identical refusals in a row hold the
+  // same string, useSyncExternalStore bails on that with Object.is, and an
+  // effect keyed on `error` itself would then simply never re-fire for the
+  // second one — no buzz, no reversed flight, indistinguishable from the
+  // throw having been silently ignored.
   useEffect(() => {
     if (!error) return;
     vibrateReject();
     // from/to stay as they were — CardFlight is positioned at `from` and
     // plays its keyframes backwards, so the card flies back in.
     setFlight((f) => (f && !f.reversed ? { ...f, reversed: true } : f));
-  }, [error]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seq]);
 
   const invited = resolveInvite(invite, session.getCode());
 

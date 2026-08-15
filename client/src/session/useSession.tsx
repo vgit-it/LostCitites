@@ -41,6 +41,17 @@ export function useSessionError(): string | null {
   return useSyncExternalStore(store.subscribe, store.getError, store.getError);
 }
 
+/**
+ * Bumps on every server reply, state or error alike — unlike `getError`,
+ * which can hold the same string across two refusals in a row and so never
+ * re-fires the effects keyed on it. Read this when what matters is "a reply
+ * arrived", not "what it said".
+ */
+export function useServerSeq(): number {
+  const store = useSession();
+  return useSyncExternalStore(store.subscribe, store.getSeq, store.getSeq);
+}
+
 /** Cosmetic cues only. Never derive state from these. */
 export function useTableEvents(handler: (event: TableEvent) => void): void {
   const store = useSession();

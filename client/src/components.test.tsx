@@ -4,8 +4,8 @@
 // no mocking — which is the point of keeping them presentational.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { Card as CardModel, Colour, PublicPlayerView, TableView } from '@shared/types';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { Card as CardModel, Colour, PlayerView, PublicPlayerView, TableView } from '@shared/types';
 import { Card } from './shared/Card';
 import { Column } from './table/Column';
 import { profilePoints } from './table/ElevationProfile';
@@ -37,6 +37,11 @@ import { JoinCode } from './table/JoinCode';
 import { qrMatrix, qrPath } from './table/qrCode';
 import { SeatInvite, SeatSlot } from './table/Table';
 import { JoinScreen } from './phone/JoinScreen';
+import { Phone } from './phone/Phone';
+import { createInMemoryRejoinStore } from './session/rejoinStore';
+import { createSessionStore } from './session/session';
+import { FakeSocket } from './session/testDoubles';
+import { SessionProvider } from './session/useSession';
 import {
   canVibrate,
   resetVibrateThrottle,
@@ -398,6 +403,129 @@ describe('the hand', () => {
   });
 });
 
+
+describe('Phone: a refused move must not brick the hand', () => {
+  function stubPlayerView(overrides: Partial<PlayerView> = {}): PlayerView {
+    return {
+      viewer: 'player',
+      seat: 0,
+      round: 1,
+      stage: 'playing',
+      deckCount: 44,
+      discardTops: { yellow: null, blue: null, white: null, green: null, red: null },
+      turn: 0,
+      phase: 'place',
+      readyForNextRound: [false, false],
+      hand: [],
+      legalPlacements: {},
+      legalDrawSources: [],
+      blockedDrawCardId: null,
+      players: [
+        {
+          seat: 0,
+          name: 'Paul',
+          connected: true,
+          handCount: 8,
+          expeditions: { yellow: [], blue: [], white: [], green: [], red: [] },
+          roundScores: [],
+          currentRoundScore: 0,
+        },
+        {
+          seat: 1,
+          name: 'Aditi',
+          connected: true,
+          handCount: 8,
+          expeditions: { yellow: [], blue: [], white: [], green: [], red: [] },
+          roundScores: [],
+          currentRoundScore: 0,
+        },
+      ],
+      ...overrides,
+    };
+  }
+
+  /** Press a card by id, drag it right past THROW_DX, let go. */
+  function throwRight(container: HTMLElement, cardId: string): void {
+    const list = container.querySelector('.hand') as HTMLElement;
+    stubElementFromPoint(() => container.querySelector(`[data-card-id="${cardId}"]`));
+    fireEvent.pointerDown(list, { clientX: 0, clientY: 200, button: 0, timeStamp: 0 });
+    fireEvent.pointerMove(list, { clientX: THROW_DX + 20, clientY: 200, timeStamp: 400 });
+    fireEvent.pointerUp(list, { clientX: THROW_DX + 20, clientY: 200 });
+  }
+
+  // This is the deadlock reported against the real app: a rejected `place`
+  // replies with only an `error` — server/room.ts does not broadcast on a
+  // refusal — and the phone had nothing but a fresh `view` to clear `busy`.
+  // One refusal, ever, and the hand never accepted another throw.
+  it('accepts a second throw after the server refuses the first', () => {
+    const socket = new FakeSocket();
+    const store = createSessionStore(socket, createInMemoryRejoinStore());
+    const { container } = render(
+      <SessionProvider store={store}>
+        <Phone />
+      </SessionProvider>,
+    );
+    // A device with no membership shows the join screen regardless of what
+    // state arrives — join first, the way a real phone would. socket.deliver
+    // and joinPlayer both push a synchronous update through
+    // useSyncExternalStore from outside a React event handler, so each is
+    // wrapped in act() the way the render it triggers needs.
+    act(() => store.joinPlayer('417', 0, 'Paul'));
+
+    act(() =>
+      socket.deliver({
+        t: 'state',
+        view: stubPlayerView({
+          hand: [{ id: 'blue-2', colour: 'blue', value: 2 }],
+          legalPlacements: { 'blue-2': ['discard', 'expedition'] },
+        }),
+      }),
+    );
+
+    throwRight(container, 'blue-2');
+    expect(socket.sent).toContainEqual({ t: 'place', cardId: 'blue-2', target: 'expedition' });
+
+    // The server refuses it. No accompanying state — exactly what a real
+    // refusal looks like (server/room.ts:90 replies sendError and returns
+    // without broadcasting), and exactly why keying the busy flag on `view`
+    // alone bricks the phone: on your own turn, nothing else produces a new
+    // `state` until the opponent moves, so there is nothing left to clear it.
+    act(() => socket.deliver({ t: 'error', message: 'Blue 2 is too low.' }));
+
+    throwRight(container, 'blue-2');
+    expect(socket.sent.filter((m) => m.t === 'place')).toHaveLength(2);
+  });
+
+  // Two identical refusals in a row must both be felt — the second one is
+  // exactly where a `useEffect` keyed on the error string, rather than a
+  // reply counter, would silently stop firing.
+  it('reacts to a repeated identical refusal, not just the first one', () => {
+    const socket = new FakeSocket();
+    const store = createSessionStore(socket, createInMemoryRejoinStore());
+    render(
+      <SessionProvider store={store}>
+        <Phone />
+      </SessionProvider>,
+    );
+    act(() => store.joinPlayer('417', 0, 'Paul'));
+
+    act(() =>
+      socket.deliver({
+        t: 'state',
+        view: stubPlayerView({
+          hand: [{ id: 'blue-2', colour: 'blue', value: 2 }],
+          legalPlacements: { 'blue-2': ['discard', 'expedition'] },
+        }),
+      }),
+    );
+
+    act(() => socket.deliver({ t: 'error', message: 'Blue 2 is too low.' }));
+    expect(store.getSeq()).toBe(2); // one state, one error
+
+    act(() => socket.deliver({ t: 'error', message: 'Blue 2 is too low.' }));
+    expect(store.getSeq()).toBe(3);
+  });
+});
 
 describe('reading a column back', () => {
   it('names the cost of starting a column before the card leaves', () => {
