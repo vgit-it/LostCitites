@@ -10,9 +10,15 @@ export interface ColumnProps {
   cards: CardModel[];
   /** Seat 1's columns grow upward from the centre, seat 0's grow downward. */
   direction: 'up' | 'down';
+  /**
+   * A card still in the air. It is already in the state — the cue and the
+   * state arrive together — so it has to be held back until its flight lands,
+   * or the animation covers a card that already popped into place.
+   */
+  arrivingId?: string | null;
 }
 
-export function Column({ colour, cards, direction }: ColumnProps) {
+export function Column({ colour, cards, direction, arrivingId }: ColumnProps) {
   if (cards.length === 0) {
     return (
       <div className={`column column--${direction}`} style={{ '--n': 1 } as React.CSSProperties}>
@@ -36,8 +42,10 @@ export function Column({ colour, cards, direction }: ColumnProps) {
       <ElevationProfile cards={cards} colour={colour} direction={direction} />
       {ordered.map((card, i) => (
         <div
-          className="column__card"
+          className={`column__card${card.id === arrivingId ? ' is-arriving' : ''}`}
           key={card.id}
+          // The flight's destination is measured through this.
+          data-card-id={card.id}
           // Indexed by play order, not render order, so the stair runs the
           // same way for both players even though one column grows upward.
           style={{ '--i': direction === 'up' ? ordered.length - 1 - i : i } as React.CSSProperties}

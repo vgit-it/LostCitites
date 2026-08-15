@@ -67,9 +67,20 @@ function buildBaseView(state: GameState): BaseView {
   };
 }
 
-/** No hands, no deck contents. Safe for the shared tablet. */
+/**
+ * No hands, no deck contents. Safe for the shared tablet.
+ *
+ * The draw sources are the player-to-move's, because the tablet's one
+ * interactive gesture acts on that player's behalf. `legalDrawSourcesFor`
+ * already returns nothing unless it is that seat's draw phase, so this needs
+ * no stage guard of its own.
+ */
 export function buildTableView(state: GameState): TableView {
-  return { viewer: 'table', ...buildBaseView(state) };
+  return {
+    viewer: 'table',
+    ...buildBaseView(state),
+    legalDrawSources: legalDrawSourcesFor(state, state.turn),
+  };
 }
 
 /**

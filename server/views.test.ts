@@ -26,8 +26,25 @@ describe('table view', () => {
     const state = dealt();
     const view = buildTableView(state);
 
-    expect(JSON.stringify(view)).not.toContain('"deck"');
+    // The key, not the bare word: a draw source serializes as
+    // {"kind":"deck"}, which is the pile's name and not its contents.
+    expect(JSON.stringify(view)).not.toContain('"deck":');
     expect(view.deckCount).toBe(44);
+  });
+
+  it('offers no draw sources while someone is still placing', () => {
+    expect(buildTableView(dealt()).legalDrawSources).toEqual([]);
+  });
+
+  it('offers the draw sources of the player to move, and only theirs', () => {
+    const state = dealt();
+    const card = state.players[0].hand[0];
+    applyPlace(state, 0, card.id, 'discard');
+
+    const view = buildTableView(state);
+    expect(view.legalDrawSources).toEqual(buildPlayerView(state, 0).legalDrawSources);
+    // The pile that card just went onto is the blocked one.
+    expect(view.legalDrawSources).not.toContainEqual({ kind: 'discard', colour: card.colour });
   });
 
   it('reports hand sizes without revealing the cards', () => {

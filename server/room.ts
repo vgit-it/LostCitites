@@ -94,9 +94,30 @@ export class Room {
     this.broadcast();
   }
 
-  draw(seat: Seat, source: DrawSource): void {
+  /**
+   * A draw taken from the tablet, on behalf of whoever is to move.
+   *
+   * The table holds no seat, so the acting seat can only come from the turn —
+   * which is why the router cannot simply forward this to `draw`. The stage
+   * and phase are checked here rather than left to `validateDraw` so the
+   * refusal reads as "nobody is drawing" rather than naming a seat the tablet
+   * never claimed.
+   */
+  drawFromTable(source: DrawSource): void {
+    if (this.state.stage !== 'playing' || this.state.phase !== 'draw') {
+      return this.broadcaster.sendError('table', 'No one is drawing right now.');
+    }
+    this.draw(this.state.turn, source, 'table');
+  }
+
+  /**
+   * `replyTo` is where a refusal goes. It defaults to the acting seat, and is
+   * only ever otherwise for a draw the tablet made on that seat's behalf —
+   * the phone should not be told off for a gesture it did not make.
+   */
+  draw(seat: Seat, source: DrawSource, replyTo: ClientRole = roleOfSeat(seat)): void {
     const check = validateDraw(this.state, seat, source);
-    if (!check.ok) return this.broadcaster.sendError(roleOfSeat(seat), check.reason);
+    if (!check.ok) return this.broadcaster.sendError(replyTo, check.reason);
 
     applyDraw(this.state, seat, source);
     this.emit({ name: 'drew', seat, source });

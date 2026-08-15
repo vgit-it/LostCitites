@@ -4,29 +4,33 @@
 // no mocking — which is the point of keeping them presentational.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { Card as CardModel, Colour, PublicPlayerView } from '@shared/types';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { Card as CardModel, Colour, PublicPlayerView, TableView } from '@shared/types';
 import { Card } from './shared/Card';
 import { Column } from './table/Column';
 import { profilePoints } from './table/ElevationProfile';
 import { DiscardRow, deckUrgency } from './table/DiscardRow';
 import { PlayerBreakdown } from './table/RoundEnd';
 import { Hand, drawnCardId, sortHand } from './phone/Hand';
-import { SPREAD_MAX, SPREAD_MIN, fanLayout, fanSpan, slotTransform } from './phone/fan';
 import {
-  HOLD_MS,
-  MOVE_SLOP_PX,
-  chooseDrop,
-  gestureReducer,
-  initialGesture,
-} from './phone/gesture';
-import { DropZones, expeditionLabel } from './phone/DropZones';
-import { CardFlight } from './phone/CardFlight';
-import { DrawTargets } from './phone/DrawTargets';
-import { PlaceActions, expeditionHint, placementWeight } from './phone/PlaceActions';
-import { BoardStrip, topOf, wagersIn } from './phone/BoardStrip';
+  FLICK_V,
+  MAX_TILT_DEG,
+  followStep,
+  isSettled,
+  tiltFor,
+  trimSamples,
+  velocityFrom,
+} from './shared/carry';
+import { ARM_DX, THROW_DX, armedSide, flickOutcome } from './phone/throw';
+import { REACH_PX, reachOutcome, towardSeat } from './table/drawGesture';
+import { dragOf, gestureReducer, initialGesture } from './phone/gesture';
+import { FlickZones } from './phone/FlickZones';
+import { HandActions } from './phone/HandActions';
+import { expeditionHint, placementWeight, throwLabel } from './phone/columnRead';
+import { CardFlight } from './shared/CardFlight';
+import { centreOf, edgeOfSeat, edgeRect } from './shared/flightPath';
 import { columnExtent, columnMetrics, sideMetrics } from './table/columnMetrics';
-import { Tray } from './phone/Tray';
+import { planFlight } from './table/flights';
 import {
   canVibrate,
   resetVibrateThrottle,
@@ -156,27 +160,51 @@ describe('hand ordering', () => {
       'blue-9',
     ]);
   });
+});
 
-  it('mutes a card with no legal target but still lets you ask why', () => {
-    // Changed by design: an unplayable card used to be `disabled`, so there
-    // was no way to find out why it could not be played. It is now selectable
-    // and the tray answers with expeditionHint().
-    const onSelect = vi.fn();
+describe('the hand', () => {
+  /** Press a card, drag it along a path of x/time pairs, let go. */
+  function throwCard(
+    container: HTMLElement,
+    cardId: string,
+    path: Array<{ x: number; t: number }>,
+  ): void {
+    const list = container.querySelector('.hand') as HTMLElement;
+    // jsdom implements no layout and does not define elementFromPoint at
+    // all, so stand in for the hit test a browser would do.
+    stubElementFromPoint(() => container.querySelector(`[data-card-id="${cardId}"]`));
+
+    fireEvent.pointerDown(list, { clientX: 0, clientY: 200, button: 0, timeStamp: 0 });
+    for (const step of path) {
+      fireEvent.pointerMove(list, { clientX: step.x, clientY: 200, timeStamp: step.t });
+    }
+    fireEvent.pointerUp(list, { clientX: path.at(-1)?.x ?? 0, clientY: 200 });
+  }
+
+  it('lays every card out in one row, addressable by id', () => {
     const { container } = render(
       <Hand
-        cards={[num('blue', 2), num('red', 5)]}
-        legalPlacements={{ 'blue-2': ['discard'] }}
-        selectedId={null}
-        onSelect={onSelect}
+        cards={[num('blue', 2), num('red', 5), wager('green', 1)]}
+        legalPlacements={{}}
+        muted
       />,
     );
 
-    fireEvent.click(screen.getByLabelText('red 5'));
-    expect(onSelect).toHaveBeenCalledWith('red-5');
-    expect(container.querySelector('[data-card-id="red-5"]')?.className).toContain('is-muted');
+    const list = container.querySelector('.hand') as HTMLElement;
+    expect(list.querySelectorAll('.hand__slot')).toHaveLength(3);
+    // The row divides its width by the count; nothing is measured.
+    expect(list.style.getPropertyValue('--hand-count')).toBe('3');
+    for (const id of ['blue-2', 'red-5', 'green-w1']) {
+      expect(container.querySelector(`[data-card-id="${id}"]`)).not.toBeNull();
+    }
+  });
 
-    fireEvent.click(screen.getByLabelText('blue 2'));
-    expect(onSelect).toHaveBeenCalledWith('blue-2');
+  it('mutes a card with no legal target', () => {
+    const { container } = render(
+      <Hand cards={[num('blue', 2), num('red', 5)]} legalPlacements={{ 'blue-2': ['discard'] }} />,
+    );
+
+    expect(container.querySelector('[data-card-id="red-5"]')?.className).toContain('is-muted');
     expect(container.querySelector('[data-card-id="blue-2"]')?.className).not.toContain('is-muted');
   });
 
@@ -184,457 +212,304 @@ describe('hand ordering', () => {
     // The server sends no legalPlacements during the draw phase, so reading
     // it then would grey out the entire hand — and the hand's colours are
     // exactly what decides which discard is worth taking.
-    const { container } = render(
-      <Hand cards={[num('blue', 2)]} legalPlacements={{}} selectedId={null} onSelect={vi.fn()} muted />,
-    );
+    const { container } = render(<Hand cards={[num('blue', 2)]} legalPlacements={{}} muted />);
 
-    const list = container.querySelector('.hand--fan') as HTMLElement;
+    const list = container.querySelector('.hand') as HTMLElement;
     expect(container.querySelector('[data-card-id="blue-2"]')?.className).not.toContain('is-muted');
     expect(list.className).toContain('is-muted'); // inert...
     expect(list.className).not.toContain('is-away'); // ...but not receded
   });
 
-  it('ignores a pointer-driven click, because the scrub already handled it', () => {
-    // A press and release across two cards fires click on their common
-    // ancestor, so click cannot be trusted for pointers. detail tells them
-    // apart: 0 is a keyboard activation, >= 1 came from a pointer.
-    const onSelect = vi.fn();
-    render(
-      <Hand
-        cards={[num('blue', 2)]}
-        legalPlacements={{ 'blue-2': ['discard'] }}
-        selectedId={null}
-        onSelect={onSelect}
-      />,
-    );
-
-    fireEvent.click(screen.getByLabelText('blue 2'), { detail: 1 });
-    expect(onSelect).not.toHaveBeenCalled();
-
-    // Enter and Space synthesise a click with no pointer behind it.
-    fireEvent.click(screen.getByLabelText('blue 2'), { detail: 0 });
-    expect(onSelect).toHaveBeenCalledWith('blue-2');
-  });
-
-  it('raises the card under a press, so a plain tap still feels immediate', () => {
-    const onSelect = vi.fn();
-    const { container } = render(
-      <Hand
-        cards={[num('blue', 2), num('blue', 5)]}
-        legalPlacements={{ 'blue-2': ['discard'], 'blue-5': ['discard'] }}
-        selectedId={null}
-        onSelect={onSelect}
-      />,
-    );
-
-    const list = container.querySelector('.hand--fan') as HTMLElement;
-    // jsdom implements no layout and does not define elementFromPoint at
-    // all, so stand in for the hit test a browser would do.
-    stubElementFromPoint(() => container.querySelector('[data-card-id="blue-5"]'));
-
-    fireEvent.pointerDown(list, { clientX: 10, clientY: 10, button: 0 });
-    expect(onSelect).toHaveBeenCalledWith('blue-5');
-  });
-
-  it('fans the hand rather than choosing, once the thumb travels', () => {
-    const onSelect = vi.fn();
-    const { container } = render(
-      <Hand
-        cards={[num('blue', 2), num('blue', 5)]}
-        legalPlacements={{ 'blue-2': ['discard'], 'blue-5': ['discard'] }}
-        selectedId="blue-2"
-        onSelect={onSelect}
-      />,
-    );
-
-    const list = container.querySelector('.hand--fan') as HTMLElement;
-    stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
-    const before = list.style.getPropertyValue('--fan-span');
-
-    fireEvent.pointerDown(list, { clientX: 10, clientY: 10, button: 0 });
-    fireEvent.pointerMove(list, { clientX: 10 + MOVE_SLOP_PX + 80, clientY: 12 });
-
-    expect(list.className).toContain('is-fanning');
-    // The geometry actually moved under the thumb.
-    expect(list.style.getPropertyValue('--fan-span')).not.toBe(before);
-    // And fanning is not choosing: the raise from the press is withdrawn.
-    expect(onSelect).toHaveBeenLastCalledWith(null);
-  });
-
-  it('picks a card up when the press is held still', () => {
-    vi.useFakeTimers();
-    try {
-      const onLift = vi.fn();
-      const { container } = render(
-        <Hand
-          cards={[num('blue', 2)]}
-          legalPlacements={{ 'blue-2': ['discard'] }}
-          selectedId={null}
-          onSelect={vi.fn()}
-          onLift={onLift}
-        />,
-      );
-
-      const list = container.querySelector('.hand--fan') as HTMLElement;
-      stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
-
-      fireEvent.pointerDown(list, { clientX: 10, clientY: 10, button: 0 });
-      act(() => void vi.advanceTimersByTime(HOLD_MS));
-
-      expect(onLift).toHaveBeenCalledWith('blue-2');
-      expect(container.querySelector('[data-card-id="blue-2"]')?.className).toContain(
-        'is-dragging',
-      );
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('does not pick a card up if the thumb moved first', () => {
-    vi.useFakeTimers();
-    try {
-      const onLift = vi.fn();
-      const { container } = render(
-        <Hand
-          cards={[num('blue', 2)]}
-          legalPlacements={{ 'blue-2': ['discard'] }}
-          selectedId={null}
-          onSelect={vi.fn()}
-          onLift={onLift}
-        />,
-      );
-
-      const list = container.querySelector('.hand--fan') as HTMLElement;
-      stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
-
-      fireEvent.pointerDown(list, { clientX: 10, clientY: 10, button: 0 });
-      fireEvent.pointerMove(list, { clientX: 10 + MOVE_SLOP_PX + 30, clientY: 10 });
-      act(() => void vi.advanceTimersByTime(HOLD_MS * 4));
-
-      expect(onLift).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('reports where a held card was let go, and says so when it was cancelled', () => {
-    vi.useFakeTimers();
-    try {
-      const onRelease = vi.fn();
-      const { container } = render(
-        <Hand
-          cards={[num('blue', 2)]}
-          legalPlacements={{ 'blue-2': ['discard'] }}
-          selectedId={null}
-          onSelect={vi.fn()}
-          onRelease={onRelease}
-        />,
-      );
-
-      const list = container.querySelector('.hand--fan') as HTMLElement;
-      stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
-
-      const lift = () => {
-        fireEvent.pointerDown(list, { clientX: 10, clientY: 10, button: 0 });
-        act(() => void vi.advanceTimersByTime(HOLD_MS));
-      };
-
-      lift();
-      fireEvent.pointerUp(list, { clientX: 120, clientY: 40 });
-      expect(onRelease).toHaveBeenLastCalledWith('blue-2', { x: 120, y: 40 });
-
-      lift();
-      fireEvent.pointerCancel(list, { clientX: 120, clientY: 40 });
-      expect(onRelease).toHaveBeenLastCalledWith('blue-2', null);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('ignores movement when no gesture is running', () => {
-    const onSelect = vi.fn();
+  it('picks a card up on contact, with no hold to wait out', () => {
+    const onCarry = vi.fn();
     const { container } = render(
       <Hand
         cards={[num('blue', 2)]}
         legalPlacements={{ 'blue-2': ['discard'] }}
-        selectedId={null}
-        onSelect={onSelect}
+        onCarry={onCarry}
       />,
     );
 
-    const list = container.querySelector('.hand--fan') as HTMLElement;
+    const list = container.querySelector('.hand') as HTMLElement;
     stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
 
-    fireEvent.pointerUp(list, { clientX: 10, clientY: 10 });
-    fireEvent.pointerMove(list, { clientX: 90, clientY: 10 });
+    fireEvent.pointerDown(list, { clientX: 10, clientY: 10, button: 0, timeStamp: 0 });
 
-    expect(onSelect).not.toHaveBeenCalled();
-    expect(list.className).not.toContain('is-fanning');
+    expect(onCarry).toHaveBeenCalledWith('blue-2');
+    expect(container.querySelector('[data-card-id="blue-2"]')?.className).toContain('is-carried');
+    expect(list.className).toContain('is-carrying');
   });
 
-  it('is genuinely inert when the turn is not this phone to act on', () => {
-    const onSelect = vi.fn();
-    render(
+  it('arms the side the card is heading for, before the throw would land', () => {
+    const onArmed = vi.fn();
+    const { container } = render(
       <Hand
         cards={[num('blue', 2)]}
-        legalPlacements={{ 'blue-2': ['discard'] }}
-        selectedId={null}
-        onSelect={onSelect}
-        disabled
+        legalPlacements={{ 'blue-2': ['discard', 'expedition'] }}
+        onArmed={onArmed}
       />,
     );
 
-    fireEvent.click(screen.getByLabelText('blue 2'));
-    expect(onSelect).not.toHaveBeenCalled();
+    const list = container.querySelector('.hand') as HTMLElement;
+    stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
+
+    fireEvent.pointerDown(list, { clientX: 100, clientY: 200, button: 0, timeStamp: 0 });
+    fireEvent.pointerMove(list, { clientX: 100 + ARM_DX + 5, clientY: 200, timeStamp: 40 });
+    expect(onArmed).toHaveBeenLastCalledWith('expedition');
+
+    fireEvent.pointerMove(list, { clientX: 100 - ARM_DX - 5, clientY: 200, timeStamp: 80 });
+    expect(onArmed).toHaveBeenLastCalledWith('discard');
+  });
+
+  it('plays a card thrown right and discards one thrown left', () => {
+    const onThrow = vi.fn();
+    const { container } = render(
+      <Hand
+        cards={[num('blue', 2)]}
+        legalPlacements={{ 'blue-2': ['discard', 'expedition'] }}
+        onThrow={onThrow}
+      />,
+    );
+
+    throwCard(container, 'blue-2', [{ x: THROW_DX + 20, t: 400 }]);
+    expect(onThrow).toHaveBeenLastCalledWith('blue-2', 'expedition');
+
+    throwCard(container, 'blue-2', [{ x: -THROW_DX - 20, t: 400 }]);
+    expect(onThrow).toHaveBeenLastCalledWith('blue-2', 'discard');
+  });
+
+  it('refuses a throw at a direction the server did not offer', () => {
+    const onThrow = vi.fn();
+    const { container } = render(
+      <Hand cards={[num('blue', 2)]} legalPlacements={{ 'blue-2': ['discard'] }} onThrow={onThrow} />,
+    );
+
+    throwCard(container, 'blue-2', [{ x: THROW_DX + 20, t: 400 }]);
+    expect(onThrow).toHaveBeenLastCalledWith('blue-2', 'refuse');
+  });
+
+  it('puts a card back when it is pressed and simply let go', () => {
+    // Distance only. jsdom stamps its own clock on every event — the
+    // timeStamp passed to fireEvent is discarded — so a release velocity
+    // cannot be staged from here; `what a throw meant` covers that directly
+    // against flickOutcome, where the numbers are the input.
+    const onThrow = vi.fn();
+    const { container } = render(
+      <Hand
+        cards={[num('blue', 2)]}
+        legalPlacements={{ 'blue-2': ['discard', 'expedition'] }}
+        onThrow={onThrow}
+      />,
+    );
+
+    throwCard(container, 'blue-2', []);
+    expect(onThrow).toHaveBeenLastCalledWith('blue-2', 'return');
+  });
+
+  it('treats a cancelled gesture as a card put back, never as a throw', () => {
+    const onThrow = vi.fn();
+    const { container } = render(
+      <Hand
+        cards={[num('blue', 2)]}
+        legalPlacements={{ 'blue-2': ['discard', 'expedition'] }}
+        onThrow={onThrow}
+      />,
+    );
+
+    const list = container.querySelector('.hand') as HTMLElement;
+    stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
+
+    fireEvent.pointerDown(list, { clientX: 0, clientY: 200, button: 0, timeStamp: 0 });
+    fireEvent.pointerMove(list, { clientX: THROW_DX + 60, clientY: 200, timeStamp: 60 });
+    // An incoming call, a palm on the screen: the card was never thrown.
+    fireEvent.pointerCancel(list, { clientX: THROW_DX + 60, clientY: 200 });
+
+    expect(onThrow).toHaveBeenLastCalledWith('blue-2', 'return');
+  });
+
+  it('ignores a press that lands between cards', () => {
+    const onCarry = vi.fn();
+    const { container } = render(
+      <Hand
+        cards={[num('blue', 2)]}
+        legalPlacements={{ 'blue-2': ['discard'] }}
+        onCarry={onCarry}
+      />,
+    );
+
+    const list = container.querySelector('.hand') as HTMLElement;
+    stubElementFromPoint(() => null);
+
+    fireEvent.pointerDown(list, { clientX: 10, clientY: 10, button: 0, timeStamp: 0 });
+    fireEvent.pointerMove(list, { clientX: 400, clientY: 10, timeStamp: 40 });
+
+    expect(onCarry).not.toHaveBeenCalled();
+    expect(list.className).not.toContain('is-carrying');
+  });
+
+  it('is genuinely inert when this phone has nothing to place', () => {
+    const onCarry = vi.fn();
+    const { container } = render(
+      <Hand cards={[num('blue', 2)]} legalPlacements={{}} muted onCarry={onCarry} />,
+    );
+
+    const list = container.querySelector('.hand') as HTMLElement;
+    stubElementFromPoint(() => container.querySelector('[data-card-id="blue-2"]'));
+    fireEvent.pointerDown(list, { clientX: 10, clientY: 10, button: 0, timeStamp: 0 });
+
+    expect(onCarry).not.toHaveBeenCalled();
+  });
+
+  it('shakes the card the server refused', () => {
+    const { container } = render(
+      <Hand
+        cards={[num('blue', 2)]}
+        legalPlacements={{ 'blue-2': ['discard'] }}
+        refusingId="blue-2"
+      />,
+    );
+    expect(container.querySelector('[data-card-id="blue-2"]')?.className).toContain('is-refusing');
   });
 });
 
-describe('fan layout', () => {
-  it('has nothing to place for an empty hand', () => {
-    expect(fanLayout(0)).toEqual([]);
+
+describe('reading a column back', () => {
+  it('names the cost of starting a column before the card leaves', () => {
+    // There is no confirmation step: the throw is one motion, and stopping it
+    // to ask "are you sure" would undo the point of the gesture. The label is
+    // the warning.
+    expect(throwLabel([], num('red', 4))).toBe('Start red · −20');
+    expect(throwLabel([num('red', 2)], num('red', 4))).toBe('Play to red');
   });
 
-  it('leaves a single card square to the eye', () => {
-    expect(fanLayout(1)).toEqual([
-      { transform: 'translate(0.00%, 0.00%) rotate(0.00deg)', tx: 0, ty: 0, angle: 0, zIndex: 0 },
-    ]);
+  it('does not call a wager a commitment — it never starts the −20 on its own', () => {
+    expect(placementWeight([], wager('red', 1))).toBe('normal');
+    expect(placementWeight([], num('red', 4))).toBe('commits');
+    expect(placementWeight([num('red', 2)], num('red', 4))).toBe('normal');
   });
 
-  it('is symmetric about the middle of the hand', () => {
-    const slots = fanLayout(8);
-    for (let i = 0; i < slots.length; i += 1) {
-      expect(slots[i].angle).toBeCloseTo(-slots[slots.length - 1 - i].angle, 10);
-    }
-  });
-
-  it('runs left to right with the middle of the hand highest', () => {
-    const slots = fanLayout(8);
-    for (let i = 1; i < slots.length; i += 1) {
-      expect(slots[i].tx).toBeGreaterThan(slots[i - 1].tx);
-    }
-    // ty grows downward, so the centre cards carry the smallest values.
-    const centre = Math.min(...slots.map((s) => s.ty));
-    expect(slots[3].ty).toBeCloseTo(centre, 10);
-    expect(slots[0].ty).toBeGreaterThan(centre);
-  });
-
-  it('caps the total spread so a big hand never curls into a claw', () => {
-    const slots = fanLayout(20);
-    const spread = slots[slots.length - 1].angle - slots[0].angle;
-    expect(spread).toBeCloseTo(34, 10);
-  });
-
-  it('places a full hand exactly', () => {
-    expect(fanLayout(8).map((s) => s.transform)).toEqual([
-      'translate(-138.24%, 12.75%) rotate(-15.75deg)',
-      'translate(-99.36%, 6.52%) rotate(-11.25deg)',
-      'translate(-59.86%, 2.35%) rotate(-6.75deg)',
-      'translate(-19.99%, 0.26%) rotate(-2.25deg)',
-      'translate(19.99%, 0.26%) rotate(2.25deg)',
-      'translate(59.86%, 2.35%) rotate(6.75deg)',
-      'translate(99.36%, 6.52%) rotate(11.25deg)',
-      'translate(138.24%, 12.75%) rotate(15.75deg)',
-    ]);
-  });
-
-  it('keeps a full hand inside a narrow phone', () => {
-    // The load-bearing sum: the fan spans (tx range + one card). At
-    // --fan-card-w: min(5.5rem, 24vw) that is ~325px of a 360px screen, so
-    // it fits without the container ever needing to clip — which matters,
-    // because nothing in the app sets overflow and a clipped fan would be
-    // sheared rather than scrolled.
-    const slots = fanLayout(8);
-    const spanInCardWidths = (slots[7].tx - slots[0].tx) / 100 + 1;
-    expect(spanInCardWidths).toBeLessThan(3.9);
-    expect(spanInCardWidths * 0.24 * 100).toBeLessThan(92); // vw at 24vw cards
-  });
-
-  it('opens and closes with the spread, and rests at the shape it always had', () => {
-    const closed = fanLayout(8, SPREAD_MIN);
-    const rest = fanLayout(8);
-    const open = fanLayout(8, SPREAD_MAX);
-
-    // Both the tilt and the gap between neighbours move — tilt alone would
-    // rotate the cards without separating them, since the arc radius falls
-    // as the step grows and holds the spacing constant.
-    for (const [tighter, wider] of [
-      [closed, rest],
-      [rest, open],
-    ] as const) {
-      expect(Math.abs(wider[0].angle)).toBeGreaterThan(Math.abs(tighter[0].angle));
-      expect(Math.abs(wider[0].tx)).toBeGreaterThan(Math.abs(tighter[0].tx));
-    }
-  });
-
-  it('reports a span the card size can be divided by, at every spread', () => {
-    // The contract with .hand--fan: --fan-card-w is (viewport / span), so a
-    // wider fan yields smaller cards rather than cards that overflow a box
-    // nothing in the app is allowed to clip.
-    expect(fanSpan(0)).toBe(1);
-    expect(fanSpan(1)).toBe(1);
-    // Centre-to-centre plus the outer cards' *rotated* bounding boxes, not
-    // plus one card width — the tilt is what made the fan overflow a 390px
-    // viewport by 6px on each side.
-    expect(fanSpan(8)).toBeCloseTo(4.1345, 3);
-    expect(fanSpan(8, SPREAD_MAX)).toBeGreaterThan(fanSpan(8, SPREAD_MIN));
-
-    // Even thrown fully open, a full hand stays inside a narrow phone once
-    // the span has been paid for in card width.
-    const widest = fanSpan(8, SPREAD_MAX);
-    expect((360 - 24) / widest).toBeGreaterThan(56); // px per card, still legible
-  });
-
-  it('lifts a card clear of the fan and levels it', () => {
-    const slot = fanLayout(8)[0];
-    expect(slotTransform(slot, 'lifted')).toBe(
-      'translate(-138.24%, -21.00%) rotate(0.00deg) scale(1.06)',
-    );
-  });
-
-  it('sits an unplayable card back without disturbing its tilt', () => {
-    const slot = fanLayout(8)[0];
-    expect(slotTransform(slot, 'muted')).toBe('translate(-138.24%, 16.75%) rotate(-15.75deg)');
-    expect(slotTransform(slot, 'rest')).toBe(slot.transform);
+  it('explains a dead direction as the state of the column', () => {
+    expect(expeditionHint([num('blue', 7)], num('blue', 3))).toBe('blue is at 7');
+    expect(expeditionHint([], num('blue', 3))).toBe('Cannot start blue');
+    expect(expeditionHint([num('blue', 7)], wager('blue', 1))).toContain('wagers must come first');
+    // Wagers already down do not count as the column being under way.
+    expect(expeditionHint([wager('blue', 1)], wager('blue', 2))).toBe('Cannot start blue');
   });
 });
 
-describe('place actions', () => {
-  it('names the destination rather than saying "confirm"', () => {
+describe('the two directions', () => {
+  const zones = (
+    card: CardModel,
+    targets: Array<'expedition' | 'discard'>,
+    column: CardModel[] = [],
+    armed: 'expedition' | 'discard' | null = null,
+  ) =>
+    render(<FlickZones card={card} targets={targets} column={column} armed={armed} />).container;
+
+  it('is scenery, not a target: nothing here can be hit or tapped', () => {
+    const container = zones(num('red', 4), ['expedition', 'discard']);
+    // The decision comes from the direction of the throw. If these were ever
+    // hit-tested the gesture would have two answers.
+    expect(container.querySelector('.flick-zones')?.getAttribute('aria-hidden')).toBe('true');
+    expect(container.querySelector('button')).toBeNull();
+  });
+
+  it('takes the card’s own colour on the right and nothing on the left', () => {
+    const container = zones(num('red', 4), ['expedition', 'discard']);
+    const play = container.querySelector('.flick-zone--expedition') as HTMLElement;
+
+    expect(play.style.getPropertyValue('--colour')).toBe('var(--colour-red)');
+    expect(container.querySelector('.flick-zone--discard')?.textContent).toContain('Discard');
+  });
+
+  it('marks a direction dead rather than hiding it', () => {
+    // Knowing which way is closed is the point; a missing half would just
+    // read as the wash not having appeared.
+    const container = zones(num('blue', 3), ['discard'], [num('blue', 7)]);
+    const play = container.querySelector('.flick-zone--expedition') as HTMLElement;
+
+    expect(play.className).toContain('is-dead');
+    expect(play.textContent).toContain('blue is at 7');
+    expect(container.querySelector('.flick-zone--discard')?.className).not.toContain('is-dead');
+  });
+
+  it('arms only the side being headed for, and never a dead one', () => {
+    const live = zones(num('red', 4), ['expedition', 'discard'], [], 'expedition');
+    expect(live.querySelector('.flick-zone--expedition')?.className).toContain('is-armed');
+    expect(live.querySelector('.flick-zone--discard')?.className).not.toContain('is-armed');
+
+    const dead = zones(num('blue', 3), ['discard'], [num('blue', 7)], 'expedition');
+    const play = dead.querySelector('.flick-zone--expedition') as HTMLElement;
+    // The class goes on, but is-dead is what the styling reads.
+    expect(play.className).toContain('is-dead');
+  });
+
+  it('warns about a costly play in the label', () => {
+    const container = zones(num('red', 4), ['expedition', 'discard']);
+    const play = container.querySelector('.flick-zone--expedition') as HTMLElement;
+
+    expect(play.className).toContain('is-costly');
+    expect(play.textContent).toContain('−20');
+  });
+});
+
+describe('every move in words', () => {
+  const actions = (props: Partial<React.ComponentProps<typeof HandActions>> = {}) =>
     render(
-      <PlaceActions
-        card={num('blue', 7)}
-        targets={['expedition', 'discard']}
-        column={[]}
+      <HandActions
+        hand={[num('blue', 2), num('red', 5)]}
+        legalPlacements={{ 'blue-2': ['expedition', 'discard'], 'red-5': ['discard'] }}
+        legalDrawSources={[]}
+        discardTops={noTops}
+        deckCount={44}
+        phase="place"
+        myTurn
         onPlace={vi.fn()}
+        onDraw={vi.fn()}
+        {...props}
       />,
-    );
-    expect(screen.getByRole('button', { name: /play to blue/i })).toBeTruthy();
+    ).container;
+
+  it('offers exactly the placements the server offered', () => {
+    actions();
+    expect(screen.getByText('Play blue 2 to your blue expedition')).toBeTruthy();
+    expect(screen.getByText('Discard blue 2')).toBeTruthy();
+    expect(screen.getByText('Discard red 5')).toBeTruthy();
+    // red 5 has no expedition target, so there is no button for one.
+    expect(screen.queryByText('Play red 5 to your red expedition')).toBeNull();
   });
 
-  it('disables the expedition button when the server did not offer it', () => {
-    render(
-      <PlaceActions
-        card={num('blue', 4)}
-        targets={['discard']}
-        column={[num('blue', 7)]}
-        onPlace={vi.fn()}
-      />,
-    );
-    expect(screen.getByRole('button', { name: /play to blue/i }).hasAttribute('disabled')).toBe(
-      true,
-    );
-  });
-
-  it('treats starting a column as the one irreversible commitment', () => {
-    expect(placementWeight([], num('blue', 7))).toBe('commits');
-    // A wager cannot start a column's scoring on its own.
-    expect(placementWeight([], wager('blue', 1))).toBe('normal');
-    expect(placementWeight([num('blue', 3)], num('blue', 7))).toBe('normal');
-  });
-
-  it('asks twice before starting a column, and discloses the cost', () => {
+  it('places the card it names', () => {
     const onPlace = vi.fn();
-    render(
-      <PlaceActions
-        card={num('blue', 7)}
-        targets={['expedition', 'discard']}
-        column={[]}
-        onPlace={onPlace}
-      />,
-    );
+    actions({ onPlace });
 
-    const play = screen.getByRole('button', { name: /play to blue/i });
-    expect(play.textContent).toContain('costs 20');
-
-    fireEvent.click(play);
-    expect(onPlace).not.toHaveBeenCalled();
-
-    const armed = screen.getByRole('button', { name: /tap again to start blue/i });
-    fireEvent.click(armed);
-    expect(onPlace).toHaveBeenCalledWith('expedition');
+    fireEvent.click(screen.getByText('Discard red 5'));
+    expect(onPlace).toHaveBeenCalledWith('red-5', 'discard');
   });
 
-  it('plays a card into a started column on the first tap', () => {
-    const onPlace = vi.fn();
-    render(
-      <PlaceActions
-        card={num('blue', 9)}
-        targets={['expedition', 'discard']}
-        column={[num('blue', 3)]}
-        onPlace={onPlace}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /play to blue/i }));
-    expect(onPlace).toHaveBeenCalledWith('expedition');
-  });
-
-  it('disarms itself if the question goes unanswered', () => {
-    vi.useFakeTimers();
-    const onPlace = vi.fn();
-    render(
-      <PlaceActions
-        card={num('blue', 7)}
-        targets={['expedition', 'discard']}
-        column={[]}
-        onPlace={onPlace}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /play to blue/i }));
-    expect(screen.getByRole('button', { name: /tap again/i })).toBeTruthy();
-
-    act(() => {
-      vi.advanceTimersByTime(3000);
+  it('offers the draw sources instead, once it is time to draw', () => {
+    const onDraw = vi.fn();
+    actions({
+      phase: 'draw',
+      legalDrawSources: [{ kind: 'deck' }, { kind: 'discard', colour: 'green' }],
+      discardTops: { ...noTops, green: num('green', 9), red: num('red', 3) },
+      onDraw,
     });
 
-    expect(screen.getByRole('button', { name: /costs 20/i })).toBeTruthy();
-    expect(onPlace).not.toHaveBeenCalled();
-    vi.useRealTimers();
+    expect(screen.queryByText(/Play blue 2/)).toBeNull();
+    fireEvent.click(screen.getByText('Draw from the deck, 44 left'));
+    expect(onDraw).toHaveBeenCalledWith({ kind: 'deck' });
+
+    fireEvent.click(screen.getByText('Take the green 9 from the discards'));
+    expect(onDraw).toHaveBeenCalledWith({ kind: 'discard', colour: 'green' });
+    // red has a top card but is not on offer — the blocked pile, or an
+    // illegal one. It gets no button.
+    expect(screen.queryByText(/red 3/)).toBeNull();
   });
 
-  it('explains why by reading the column back', () => {
-    expect(expeditionHint([num('blue', 7)], num('blue', 4))).toBe('blue is at 7');
-    expect(expeditionHint([], num('blue', 4))).toBe('Cannot start blue');
-    expect(expeditionHint([num('blue', 7)], wager('blue', 1))).toContain('wagers must come first');
-  });
-});
-
-describe('draw targets', () => {
-  const tops = { ...noTops, blue: num('blue', 6), red: num('red', 3) };
-
-  it('offers only the sources the server marked legal', () => {
-    const onDraw = vi.fn();
-    render(
-      <DrawTargets
-        deckCount={20}
-        discardTops={tops}
-        legalDrawSources={[{ kind: 'deck' }, { kind: 'discard', colour: 'blue' }]}
-        blockedDrawCardId="red-3"
-        onDraw={onDraw}
-      />,
-    );
-
-    fireEvent.click(screen.getByLabelText('blue 6'));
-    expect(onDraw).toHaveBeenCalledWith({ kind: 'discard', colour: 'blue' });
-
-    // The card just discarded is locked.
-    onDraw.mockClear();
-    fireEvent.click(screen.getByLabelText('red 3'));
-    expect(onDraw).not.toHaveBeenCalled();
-  });
-
-  it('disables the deck when it is not a legal source', () => {
-    render(
-      <DrawTargets
-        deckCount={0}
-        discardTops={tops}
-        legalDrawSources={[{ kind: 'discard', colour: 'blue' }]}
-        blockedDrawCardId={null}
-        onDraw={vi.fn()}
-      />,
-    );
-    expect(screen.getByRole('button', { name: /deck/i }).hasAttribute('disabled')).toBe(true);
+  it('offers nothing at all when it is not this player’s turn', () => {
+    const container = actions({ myTurn: false });
+    expect(container.querySelector('button')).toBeNull();
   });
 });
 
@@ -764,157 +639,164 @@ describe('elevation profile', () => {
   });
 });
 
+describe('carrying a card', () => {
+  it('closes the gap toward the finger without ever passing it', () => {
+    let at = { x: 0, y: 0 };
+    const finger = { x: 100, y: -40 };
+
+    for (let i = 0; i < 60; i += 1) {
+      const next = followStep(at, finger, 16);
+      // Monotone toward the target, never beyond it.
+      expect(Math.abs(finger.x - next.x)).toBeLessThan(Math.abs(finger.x - at.x) + 1e-9);
+      expect(next.x).toBeLessThanOrEqual(finger.x);
+      at = next;
+    }
+
+    expect(isSettled(at, finger)).toBe(true);
+  });
+
+  it('covers the same ground however the frames fall', () => {
+    // A slow device must not end up with a card further behind the finger —
+    // that is exactly backwards, and it is what a fixed fraction per call
+    // would do.
+    const finger = { x: 100, y: 0 };
+    let fast = { x: 0, y: 0 };
+    for (let i = 0; i < 4; i += 1) fast = followStep(fast, finger, 16);
+    const slow = followStep({ x: 0, y: 0 }, finger, 64);
+
+    expect(slow.x).toBeCloseTo(fast.x, 6);
+  });
+
+  it('does nothing on a zero or backwards frame', () => {
+    const at = { x: 5, y: 5 };
+    expect(followStep(at, { x: 90, y: 0 }, 0)).toEqual(at);
+    expect(followStep(at, { x: 90, y: 0 }, -8)).toEqual(at);
+  });
+
+  it('tilts with the lag, and stops tilting past the limit', () => {
+    expect(tiltFor(0)).toBe(0);
+    expect(tiltFor(20)).toBeGreaterThan(0);
+    expect(tiltFor(-20)).toBe(-tiltFor(20));
+    expect(tiltFor(10_000)).toBe(MAX_TILT_DEG);
+    expect(tiltFor(-10_000)).toBe(-MAX_TILT_DEG);
+  });
+
+  it('measures speed over the tail of the gesture, not the whole of it', () => {
+    // Swept far, then held still before letting go. That is not a throw, and
+    // averaging the whole drag would call it one.
+    const paused = [
+      { x: 0, t: 0 },
+      { x: 300, t: 100 },
+      { x: 302, t: 400 },
+      { x: 303, t: 460 },
+    ];
+    expect(Math.abs(velocityFrom(paused))).toBeLessThan(FLICK_V);
+
+    const flicked = [
+      { x: 0, t: 400 },
+      { x: 40, t: 440 },
+      { x: 90, t: 470 },
+    ];
+    expect(velocityFrom(flicked)).toBeGreaterThan(FLICK_V);
+  });
+
+  it('has no opinion about speed without two samples to compare', () => {
+    expect(velocityFrom([])).toBe(0);
+    expect(velocityFrom([{ x: 10, t: 1 }])).toBe(0);
+    // Two samples at the same instant would divide by zero.
+    expect(velocityFrom([{ x: 0, t: 5 }, { x: 40, t: 5 }])).toBe(0);
+  });
+
+  it('keeps the sample window bounded', () => {
+    const samples = [
+      { x: 0, t: 0 },
+      { x: 10, t: 500 },
+      { x: 20, t: 560 },
+    ];
+    expect(trimSamples(samples, 570).map((s) => s.t)).toEqual([500, 560]);
+  });
+});
+
+describe('what a throw meant', () => {
+  const both: Array<'expedition' | 'discard'> = ['expedition', 'discard'];
+
+  it('commits on speed alone, even from a short drag', () => {
+    expect(flickOutcome({ dx: 20, vx: FLICK_V + 0.2, legalTargets: both })).toBe('expedition');
+    expect(flickOutcome({ dx: -20, vx: -FLICK_V - 0.2, legalTargets: both })).toBe('discard');
+  });
+
+  it('commits on distance alone, however slowly it was pushed', () => {
+    expect(flickOutcome({ dx: THROW_DX + 1, vx: 0, legalTargets: both })).toBe('expedition');
+    expect(flickOutcome({ dx: -THROW_DX - 1, vx: 0, legalTargets: both })).toBe('discard');
+  });
+
+  it('puts the card back when it was neither thrown nor pushed far', () => {
+    expect(flickOutcome({ dx: THROW_DX - 1, vx: FLICK_V - 0.01, legalTargets: both })).toBe(
+      'return',
+    );
+    expect(flickOutcome({ dx: 0, vx: 0, legalTargets: both })).toBe('return');
+  });
+
+  it('lets the last thing the hand did win', () => {
+    // Dragged well left, then flicked back to the right before letting go.
+    expect(flickOutcome({ dx: -200, vx: FLICK_V + 0.3, legalTargets: both })).toBe('expedition');
+  });
+
+  it('refuses a direction the server did not offer', () => {
+    expect(flickOutcome({ dx: 200, vx: 0, legalTargets: ['discard'] })).toBe('refuse');
+    // ...and never turns it into the other direction instead.
+    expect(flickOutcome({ dx: 200, vx: 0, legalTargets: [] })).toBe('refuse');
+  });
+
+  it('arms a side well before that side would commit', () => {
+    expect(armedSide(0)).toBeNull();
+    expect(armedSide(ARM_DX - 1)).toBeNull();
+    expect(armedSide(ARM_DX + 1)).toBe('expedition');
+    expect(armedSide(-ARM_DX - 1)).toBe('discard');
+    expect(ARM_DX).toBeLessThan(THROW_DX);
+  });
+});
+
 describe('the gesture machine', () => {
-  const down = { t: 'down', cardId: 'blue-2', x: 100, y: 300 } as const;
+  const press = { t: 'down', cardId: 'blue-2', x: 100, y: 300, at: 0 } as const;
 
-  it('holds a press pending until something tells it what the press was', () => {
-    const state = gestureReducer(initialGesture, down);
-    expect(state.phase).toBe('pending');
+  it('carries a card from the moment it is pressed', () => {
+    const state = gestureReducer(initialGesture, press);
+    expect(state.phase).toBe('carrying');
     expect(state.cardId).toBe('blue-2');
+    expect(dragOf(state)).toEqual({ x: 0, y: 0 });
   });
 
-  it('turns a press that travels into a fan, and moves the spread with it', () => {
-    const pressed = gestureReducer(initialGesture, down);
-    const fanned = gestureReducer(pressed, { t: 'move', x: 100 + MOVE_SLOP_PX + 60, y: 302 });
-
-    expect(fanned.phase).toBe('fanning');
-    expect(fanned.spread).toBeGreaterThan(pressed.spread);
+  it('stays idle on a press that landed between cards', () => {
+    const state = gestureReducer(initialGesture, { ...press, cardId: null });
+    expect(state.phase).toBe('idle');
   });
 
-  it('does not fan on a movement too small to be one', () => {
-    const pressed = gestureReducer(initialGesture, down);
-    const nudged = gestureReducer(pressed, { t: 'move', x: 100 + MOVE_SLOP_PX - 1, y: 300 });
-
-    expect(nudged.phase).toBe('pending');
-    expect(nudged.spread).toBe(pressed.spread);
+  it('tracks the finger and remembers where it started', () => {
+    let state = gestureReducer(initialGesture, press);
+    state = gestureReducer(state, { t: 'move', x: 160, y: 280, at: 30 });
+    expect(dragOf(state)).toEqual({ x: 60, y: -20 });
   });
 
-  it('cancels the pickup on a vertical drag too — that is not a fan, but it is not still either', () => {
-    const pressed = gestureReducer(initialGesture, down);
-    const dragged = gestureReducer(pressed, { t: 'move', x: 100, y: 300 + MOVE_SLOP_PX + 40 });
+  it('collects samples to judge the release by', () => {
+    let state = gestureReducer(initialGesture, press);
+    state = gestureReducer(state, { t: 'move', x: 130, y: 300, at: 30 });
+    state = gestureReducer(state, { t: 'move', x: 190, y: 300, at: 60 });
 
-    expect(dragged.phase).toBe('fanning');
-    expect(gestureReducer(dragged, { t: 'hold' }).phase).toBe('fanning');
+    expect(velocityFrom(state.samples)).toBeGreaterThan(0);
   });
 
-  it('lifts on a hold, and only from a press that is still a press', () => {
-    const pressed = gestureReducer(initialGesture, down);
-    expect(gestureReducer(pressed, { t: 'hold' }).phase).toBe('lifted');
-
-    // A press that landed on no card has nothing to pick up.
-    const onNothing = gestureReducer(initialGesture, { ...down, cardId: null });
-    expect(gestureReducer(onNothing, { t: 'hold' }).phase).toBe('pending');
+  it('ignores movement when nothing is being carried', () => {
+    const state = gestureReducer(initialGesture, { t: 'move', x: 500, y: 0, at: 10 });
+    expect(state).toBe(initialGesture);
   });
 
-  it('carries a lifted card with the thumb', () => {
-    const lifted = gestureReducer(gestureReducer(initialGesture, down), { t: 'hold' });
-    const moved = gestureReducer(lifted, { t: 'move', x: 140, y: 180 });
+  it('lets go completely, so nothing carries into the next gesture', () => {
+    let state = gestureReducer(initialGesture, press);
+    state = gestureReducer(state, { t: 'move', x: 400, y: 100, at: 40 });
 
-    expect(moved.phase).toBe('lifted');
-    expect(moved.drag).toEqual({ x: 40, y: -120 });
-  });
-
-  it('clamps the spread at both ends however far the thumb goes', () => {
-    const pressed = gestureReducer(initialGesture, down);
-    expect(gestureReducer(pressed, { t: 'move', x: 100000, y: 300 }).spread).toBe(SPREAD_MAX);
-    expect(gestureReducer(pressed, { t: 'move', x: -100000, y: 300 }).spread).toBe(SPREAD_MIN);
-  });
-
-  it('keeps the spread across gestures — the hand holds the shape you left it in', () => {
-    const fanned = gestureReducer(gestureReducer(initialGesture, down), {
-      t: 'move',
-      x: 100 + MOVE_SLOP_PX + 60,
-      y: 300,
-    });
-    const settled = gestureReducer(fanned, { t: 'up' });
-
-    expect(settled.phase).toBe('idle');
-    expect(settled.spread).toBe(fanned.spread);
-    expect(settled.drag).toEqual({ x: 0, y: 0 });
-  });
-});
-
-describe('what a release meant', () => {
-  it('places on a zone the server offered', () => {
-    expect(chooseDrop('expedition', ['expedition', 'discard'])).toEqual({
-      kind: 'place',
-      target: 'expedition',
-    });
-  });
-
-  it('refuses a zone it did not, rather than silently swallowing the drop', () => {
-    expect(chooseDrop('expedition', ['discard'])).toEqual({
-      kind: 'refuse',
-      target: 'expedition',
-    });
-  });
-
-  it('treats neutral space as the cancel gesture', () => {
-    // The whole reason both commits could move to the top of the screen:
-    // changing your mind is now "let go anywhere else" rather than a
-    // downward flick, which freed the direction discard needed.
-    expect(chooseDrop(null, ['expedition', 'discard'])).toEqual({ kind: 'cancel' });
-  });
-});
-
-describe('drop zones', () => {
-  const started = [num('blue', 3)];
-
-  it('names the destination, and prices it when the column is unstarted', () => {
-    expect(expeditionLabel(started, num('blue', 7))).toBe('Play to blue');
-    expect(expeditionLabel([], num('blue', 7))).toBe('Start blue \u00b7 \u221220');
-    // A wager onto an empty column is not the -20 commitment; the first
-    // number is. placementWeight already draws that line.
-    expect(expeditionLabel([], wager('blue', 1))).toBe('Play to blue');
-  });
-
-  it('reads the column back on a target the server did not offer', () => {
-    const { container } = render(
-      <DropZones
-        card={num('blue', 2)}
-        targets={['discard']}
-        column={[num('blue', 9)]}
-        hovered={null}
-      />,
-    );
-
-    const expedition = container.querySelector('[data-drop="expedition"]') as HTMLElement;
-    expect(expedition.className).toContain('is-dead');
-    expect(expedition.textContent).toContain('blue is at 9');
-    expect(
-      (container.querySelector('[data-drop="discard"]') as HTMLElement).className,
-    ).not.toContain('is-dead');
-  });
-
-  it('arms the zone the card is actually over', () => {
-    const { container } = render(
-      <DropZones
-        card={num('blue', 7)}
-        targets={['expedition', 'discard']}
-        column={started}
-        hovered="discard"
-      />,
-    );
-
-    expect(
-      (container.querySelector('[data-drop="expedition"]') as HTMLElement).className,
-    ).not.toContain('is-over');
-    expect((container.querySelector('[data-drop="discard"]') as HTMLElement).className).toContain(
-      'is-over',
-    );
-  });
-
-  it('stays out of the accessibility tree — the labelled route is PlaceActions', () => {
-    const { container } = render(
-      <DropZones
-        card={num('blue', 7)}
-        targets={['expedition', 'discard']}
-        column={started}
-        hovered={null}
-      />,
-    );
-
-    expect(container.querySelector('.drop-zones')?.getAttribute('aria-hidden')).toBe('true');
+    expect(gestureReducer(state, { t: 'up' })).toEqual(initialGesture);
+    expect(gestureReducer(state, { t: 'cancel' })).toEqual(initialGesture);
   });
 });
 
@@ -969,66 +851,272 @@ describe('card flight', () => {
   });
 });
 
-describe('board strip', () => {
-  const empty = (): Record<Colour, CardModel[]> => ({
-    yellow: [],
-    blue: [],
-    white: [],
-    green: [],
-    red: [],
+describe('flight paths', () => {
+  const rect = { x: 100, y: 200, width: 80, height: 120 };
+  const viewport = { width: 800, height: 400 };
+
+  it('puts a thrown card clear of the edge, not flush with it', () => {
+    // Flush would leave the card half on screen while it fades, which reads
+    // as the animation giving up rather than the card leaving.
+    expect(edgeRect(rect, 'left', viewport).x).toBeLessThan(-rect.width);
+    expect(edgeRect(rect, 'right', viewport).x).toBeGreaterThan(viewport.width);
+    expect(edgeRect(rect, 'top', viewport).y).toBeLessThan(-rect.height);
+    expect(edgeRect(rect, 'bottom', viewport).y).toBeGreaterThan(viewport.height);
   });
 
-  it('reads a column back by its highest number', () => {
-    expect(topOf([])).toBeNull();
-    expect(topOf([num('blue', 3), num('blue', 7)])).toBe(7);
-    // A column of wagers alone has no number to show yet.
-    expect(topOf([wager('blue', 1)])).toBeNull();
+  it('keeps the other axis and the size, so a card leaves in a straight line', () => {
+    const thrown = edgeRect(rect, 'right', viewport);
+    expect(thrown.y).toBe(rect.y);
+    expect(thrown.width).toBe(rect.width);
+    expect(thrown.height).toBe(rect.height);
+
+    const dropped = edgeRect(rect, 'bottom', viewport);
+    expect(dropped.x).toBe(rect.x);
   });
 
-  it('counts wagers as the multiplier they are', () => {
-    expect(wagersIn([])).toBe(0);
-    expect(wagersIn([wager('red', 1), wager('red', 2), num('red', 4)])).toBe(2);
+  it('reads the same journey both ways round', () => {
+    // A throw off the bottom and an arrival over the bottom are one rect.
+    expect(edgeRect(rect, 'bottom', viewport)).toEqual(edgeRect(rect, 'bottom', viewport));
+    expect(edgeOfSeat(0)).toBe('bottom');
+    expect(edgeOfSeat(1)).toBe('top');
   });
 
-  it('distinguishes an unstarted column from a started one', () => {
-    const expeditions = empty();
-    expeditions.blue = [num('blue', 7)];
-    const { container } = render(<BoardStrip expeditions={expeditions} score={12} />);
-
-    expect(container.querySelector('[data-zone="blue"]')?.className).toContain('is-started');
-    expect(container.querySelector('[data-zone="red"]')?.className).not.toContain('is-started');
-  });
-
-  it('shows the live score the server sent, and every colour as a target', () => {
-    const { container } = render(<BoardStrip expeditions={empty()} score={-13} />);
-
-    expect(container.querySelector('.board-strip__score')?.textContent).toContain('-13');
-    // Each chip is a flight destination, addressable by colour.
-    for (const colour of ['yellow', 'blue', 'white', 'green', 'red']) {
-      expect(container.querySelector(`[data-zone="${colour}"]`)).toBeTruthy();
-    }
+  it('finds the centre of a rect', () => {
+    expect(centreOf(rect)).toEqual({ x: 140, y: 260 });
   });
 });
 
-describe('tray', () => {
-  it('remounts its contents on a mode change so the enter animation runs', () => {
-    const { container, rerender } = render(
-      <Tray mode="table">
-        <p>board</p>
-      </Tray>,
-    );
-    const first = container.querySelector('.tray__inner');
+describe('reaching across the table for a card', () => {
+  it('takes a card pulled toward the seat that is drawing', () => {
+    // Seat 0 reads the table from the bottom, so its own edge is downward.
+    expect(reachOutcome({ dy: REACH_PX + 1, vy: 0, seat: 0 })).toBe('take');
+    expect(reachOutcome({ dy: -REACH_PX - 1, vy: 0, seat: 1 })).toBe('take');
+    expect(towardSeat(0)).toBe(1);
+    expect(towardSeat(1)).toBe(-1);
+  });
 
-    rerender(
-      <Tray mode="place">
-        <p>place</p>
-      </Tray>,
-    );
+  it('puts it back when the pull went the other way', () => {
+    // This is the whole reason the table can take input at all: a lean or the
+    // wrong player's stray swipe does not travel toward the seat on turn.
+    expect(reachOutcome({ dy: -200, vy: -3, seat: 0 })).toBe('return');
+    expect(reachOutcome({ dy: 200, vy: 3, seat: 1 })).toBe('return');
+  });
 
-    expect(container.querySelector('.tray')?.className).toContain('tray--place');
-    expect(container.querySelector('.tray__inner')).not.toBe(first);
+  it('puts it back when the pull was too small to mean anything', () => {
+    expect(reachOutcome({ dy: REACH_PX - 1, vy: 0, seat: 0 })).toBe('return');
+    expect(reachOutcome({ dy: 0, vy: 0, seat: 0 })).toBe('return');
+  });
+
+  it('takes a quick flick that never travelled far', () => {
+    expect(reachOutcome({ dy: 10, vy: FLICK_V + 0.5, seat: 0 })).toBe('take');
+    expect(reachOutcome({ dy: -10, vy: -FLICK_V - 0.5, seat: 1 })).toBe('take');
+  });
+
+  it('asks for less than a throw does, because a reach is not a throw', () => {
+    expect(REACH_PX).toBeLessThan(THROW_DX);
   });
 });
+
+describe('the discard row', () => {
+  const tops = { ...noTops, green: num('green', 9), red: num('red', 3) };
+
+  function reach(el: HTMLElement, dy: number): void {
+    fireEvent.pointerDown(el, { clientX: 100, clientY: 300, button: 0 });
+    fireEvent.pointerMove(el, { clientX: 100, clientY: 300 + dy });
+    fireEvent.pointerUp(el, { clientX: 100, clientY: 300 + dy });
+  }
+
+  it('is inert with no draw sources — which is every phase but one', () => {
+    const onDraw = vi.fn();
+    const { container } = render(
+      <DiscardRow deckCount={40} discardTops={tops} legalDrawSources={[]} activeSeat={0} onDraw={onDraw} />,
+    );
+
+    reach(container.querySelector('[data-pile="green"]') as HTMLElement, 120);
+    expect(onDraw).not.toHaveBeenCalled();
+    expect(container.querySelector('.discard-row')?.className).not.toContain('is-armed');
+  });
+
+  it('draws the pile that was pulled toward the player on turn', () => {
+    const onDraw = vi.fn();
+    const { container } = render(
+      <DiscardRow
+        deckCount={40}
+        discardTops={tops}
+        legalDrawSources={[{ kind: 'deck' }, { kind: 'discard', colour: 'green' }]}
+        activeSeat={0}
+        onDraw={onDraw}
+      />,
+    );
+
+    reach(container.querySelector('[data-pile="green"]') as HTMLElement, REACH_PX + 20);
+    expect(onDraw).toHaveBeenCalledWith({ kind: 'discard', colour: 'green' });
+
+    reach(container.querySelector('[data-deck]') as HTMLElement, REACH_PX + 20);
+    expect(onDraw).toHaveBeenLastCalledWith({ kind: 'deck' });
+  });
+
+  it('ignores a pull on a pile the server did not offer', () => {
+    const onDraw = vi.fn();
+    const { container } = render(
+      <DiscardRow
+        deckCount={40}
+        discardTops={tops}
+        legalDrawSources={[{ kind: 'discard', colour: 'green' }]}
+        activeSeat={0}
+        onDraw={onDraw}
+      />,
+    );
+
+    // red has a top card, but it is blocked or otherwise not on offer.
+    reach(container.querySelector('[data-pile="red"]') as HTMLElement, REACH_PX + 20);
+    expect(onDraw).not.toHaveBeenCalled();
+  });
+
+  it('ignores a pull away from the seat that is drawing', () => {
+    const onDraw = vi.fn();
+    const { container } = render(
+      <DiscardRow
+        deckCount={40}
+        discardTops={tops}
+        legalDrawSources={[{ kind: 'discard', colour: 'green' }]}
+        activeSeat={0}
+        onDraw={onDraw}
+      />,
+    );
+
+    reach(container.querySelector('[data-pile="green"]') as HTMLElement, -REACH_PX - 40);
+    expect(onDraw).not.toHaveBeenCalled();
+  });
+
+  it('marks a wrong-way pull while it is happening', () => {
+    const { container } = render(
+      <DiscardRow
+        deckCount={40}
+        discardTops={tops}
+        legalDrawSources={[{ kind: 'discard', colour: 'green' }]}
+        activeSeat={0}
+        onDraw={vi.fn()}
+      />,
+    );
+
+    const pile = container.querySelector('[data-pile="green"]') as HTMLElement;
+    fireEvent.pointerDown(pile, { clientX: 100, clientY: 300, button: 0 });
+    fireEvent.pointerMove(pile, { clientX: 100, clientY: 260 });
+
+    expect(pile.className).toContain('is-reaching');
+    expect(pile.className).toContain('is-wrong-way');
+    expect(pile.style.transform).toBe('translateY(-40.0px)');
+  });
+
+  it('leaves a taken card where the finger left it, for the flight to pick up', () => {
+    // Snapping it home and flying it out again would animate the journey the
+    // player just made by hand.
+    const { container } = render(
+      <DiscardRow
+        deckCount={40}
+        discardTops={tops}
+        legalDrawSources={[{ kind: 'discard', colour: 'green' }]}
+        activeSeat={0}
+        onDraw={vi.fn()}
+      />,
+    );
+
+    const pile = container.querySelector('[data-pile="green"]') as HTMLElement;
+    reach(pile, REACH_PX + 20);
+    expect(pile.style.transform).toBe(`translateY(${(REACH_PX + 20).toFixed(1)}px)`);
+  });
+});
+
+describe('planning a card’s journey across the table', () => {
+  const seated = (seat: 0 | 1, name: string): PublicPlayerView => ({
+    seat,
+    name,
+    connected: true,
+    handCount: 8,
+    expeditions: { yellow: [], blue: [], white: [], green: [], red: [] },
+    roundScores: [],
+    currentRoundScore: 0,
+  });
+
+  const tableView = (tops: Partial<Record<Colour, CardModel | null>> = {}): TableView => ({
+    viewer: 'table',
+    round: 1,
+    stage: 'playing',
+    deckCount: 40,
+    discardTops: { ...noTops, ...tops },
+    turn: 0,
+    phase: 'place',
+    legalDrawSources: [],
+    readyForNextRound: [false, false],
+    players: [seated(0, 'Paul'), seated(1, 'Aditi')],
+  });
+
+  it('flies a placed card in over its own player’s edge', () => {
+    const card = num('blue', 7);
+    const plan = planFlight({ name: 'placed', seat: 0, card, target: 'expedition' }, tableView());
+
+    expect(plan).toEqual({
+      card,
+      anchor: '[data-card-id="blue-7"]',
+      edge: 'bottom',
+      direction: 'in',
+      hideCardId: 'blue-7',
+    });
+  });
+
+  it('comes in over the far edge for the player sitting opposite', () => {
+    const plan = planFlight(
+      { name: 'placed', seat: 1, card: num('red', 3), target: 'discard' },
+      tableView(),
+    );
+    expect(plan?.edge).toBe('top');
+  });
+
+  it('holds an arriving card back until it lands', () => {
+    // It is in the state that came with the cue, so it is on the table before
+    // the flight starts. Without this the animation covers a card that has
+    // already popped into place.
+    const plan = planFlight(
+      { name: 'placed', seat: 0, card: num('green', 4), target: 'expedition' },
+      tableView(),
+    );
+    expect(plan?.hideCardId).toBe('green-4');
+  });
+
+  it('takes the drawn card off the pile as it stood a moment ago', () => {
+    // The state arriving with this cue no longer has that card anywhere: the
+    // previous view is the only place it still exists.
+    const taken = num('green', 9);
+    const plan = planFlight(
+      { name: 'drew', seat: 1, source: { kind: 'discard', colour: 'green' } },
+      tableView({ green: taken }),
+    );
+
+    expect(plan).toEqual({
+      card: taken,
+      anchor: '[data-pile="green"]',
+      edge: 'top',
+      direction: 'out',
+      hideCardId: null,
+    });
+  });
+
+  it('sends a deck draw out face down, because nobody saw it', () => {
+    const plan = planFlight({ name: 'drew', seat: 0, source: { kind: 'deck' } }, tableView());
+
+    expect(plan?.card).toBeNull();
+    expect(plan?.anchor).toBe('[data-deck]');
+    expect(plan?.direction).toBe('out');
+  });
+
+  it('has nothing to fly for a screen change', () => {
+    expect(planFlight({ name: 'roundOver' }, tableView())).toBeNull();
+    expect(planFlight({ name: 'matchOver', winner: 0 }, tableView())).toBeNull();
+  });
+});
+
+
 
 describe('haptics', () => {
   afterEach(() => {

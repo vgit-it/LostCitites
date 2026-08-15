@@ -89,6 +89,16 @@ export interface BaseView {
 /** Sent to the shared table device. Contains no hands. */
 export interface TableView extends BaseView {
   viewer: 'table';
+  /**
+   * What the player to move may draw, so the tablet can arm those piles for
+   * the reach-and-take gesture without doing rules work of its own. Empty
+   * outside a draw phase.
+   *
+   * Public information — which piles are empty and which card is blocked are
+   * both visible on the table already — so this leaks nothing the tablet
+   * could not already see.
+   */
+  legalDrawSources: DrawSource[];
 }
 
 /** Sent to a phone. Contains only that phone's own hand. */

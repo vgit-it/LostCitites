@@ -30,12 +30,17 @@ function panes(params: DemoParams): Pane[] {
     width: 1024,
     height: 768,
   };
+  // Landscape, because that is the only way the phone is held. A portrait
+  // pane shows the rotate gate and nothing else, which is correct behaviour
+  // and a useless demo. The panes are real iframes precisely so that media
+  // queries resolve against a real viewport, so the size here is the whole
+  // of what decides it.
   const phone = (seat: 0 | 1): Pane => ({
     id: `seat${seat}`,
     label: `Seat ${seat}`,
     hash: demoHash({ ...params, view: 'play', seat }),
-    width: 390,
-    height: 844,
+    width: 844,
+    height: 390,
   });
 
   // With a bot on seat 1 there is no seat 1 pane: joining a seat replaces

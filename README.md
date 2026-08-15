@@ -17,7 +17,7 @@ Open the printed LAN address on each device:
 | Device | Path |
 |---|---|
 | Tablet (landscape) | `/table` |
-| Each phone (portrait) | `/play` |
+| Each phone (landscape) | `/play` |
 
 The tablet shows a 3-digit room code; the phones type it in. For a
 production run, `npm run build` then `npm start` serves everything from
@@ -90,9 +90,13 @@ server/
 client/src/
   session/       socket -> rejoinStore -> session store -> useSession
   table/         Table, Column, DiscardRow, RoundEnd, ElevationProfile
-  phone/         Phone, JoinScreen, Hand, PlaceActions, DrawTargets
-  shared/Card    the one card visual, used by both
-  platform/      vibrate, wakeLock — the only files touching navigator
+                 flights, drawGesture
+  phone/         Phone, JoinScreen, Hand, FlickZones, HandActions
+                 gesture, throw, columnRead
+  shared/        Card (the one card visual, used by both), CardFlight,
+                 flightPath, carry
+  platform/      vibrate, wakeLock, orientation, motion — the only files
+                 touching navigator / screen
 ```
 
 Two rules hold the structure together:

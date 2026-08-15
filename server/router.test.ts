@@ -104,9 +104,43 @@ describe('view filtering on the wire', () => {
 describe('turn enforcement over the wire', () => {
   beforeEach(seatEveryone);
 
-  it('rejects the table taking a turn', () => {
-    table.emit({ t: 'draw', source: { kind: 'deck' } });
+  it('rejects the table placing a card', () => {
+    table.emit({ t: 'place', cardId: viewA().hand[0].id, target: 'discard' });
     expect(table.errors()).toContain('The table cannot take turns.');
+  });
+
+  it('rejects the table drawing when nobody is drawing', () => {
+    table.emit({ t: 'draw', source: { kind: 'deck' } });
+    expect(table.errors()).toContain('No one is drawing right now.');
+  });
+
+  it('lets the table draw for whoever is to move', () => {
+    phoneA.emit({ t: 'place', cardId: viewA().hand[0].id, target: 'discard' });
+    table.emit({ t: 'draw', source: { kind: 'deck' } });
+
+    expect(viewA().hand).toHaveLength(8);
+    expect(tableView().turn).toBe(1);
+    expect(table.errors()).toEqual([]);
+  });
+
+  it('tells the table, not the phone, when its draw is refused', () => {
+    const card = viewA().hand[0];
+    phoneA.emit({ t: 'place', cardId: card.id, target: 'discard' });
+    // The card just discarded is the one source that is blocked.
+    table.emit({ t: 'draw', source: { kind: 'discard', colour: card.colour } });
+
+    expect(table.errors()).not.toEqual([]);
+    expect(phoneA.errors()).toEqual([]);
+  });
+
+  it('arms the table with the draw sources of the player to move', () => {
+    expect(tableView().legalDrawSources).toEqual([]);
+
+    const card = viewA().hand[0];
+    phoneA.emit({ t: 'place', cardId: card.id, target: 'discard' });
+
+    expect(tableView().legalDrawSources).toEqual(viewA().legalDrawSources);
+    expect(tableView().legalDrawSources).toContainEqual({ kind: 'deck' });
   });
 
   it('rejects placing out of turn', () => {

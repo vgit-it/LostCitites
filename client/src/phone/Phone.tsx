@@ -1,19 +1,18 @@
-// The phone controller. Portrait, one thumb, glanceable — the player is
-// looking at the table most of the time.
+// The phone controller: a hand of cards, held sideways, and nothing else.
 //
-// Holds zero rules logic: every legality decision arrives precomputed in
-// the view. This component only routes taps to intents.
+// No deck, no discards, no expedition columns. All of that is on the table
+// the player is already looking at, and putting a small copy of it here was
+// asking them to play the game twice. What is left is the one thing only this
+// device can hold: the cards nobody else may see.
+//
+// Holds zero rules logic: every legality decision arrives precomputed in the
+// view. This component only turns throws into intents.
 
 import { useEffect, useRef, useState } from 'react';
 import { Card as CardModel, DrawSource, PlaceTarget, PlayerView, Seat } from '@shared/types';
-import {
-  vibrateCommit,
-  vibrateDraw,
-  vibrateReject,
-  vibrateTurnStart,
-  vibrateZone,
-} from '../platform/vibrate';
-import { DRAW_FLIGHT_MS, LAND_MS, SHAKE_MS } from '../platform/motion';
+import { vibrateCommit, vibrateDraw, vibrateReject, vibrateTurnStart } from '../platform/vibrate';
+import { DRAW_FLIGHT_MS, SHAKE_MS } from '../platform/motion';
+import { useLandscapeLock } from '../platform/orientation';
 import { useWakeLock } from '../platform/wakeLock';
 import {
   useClientView,
@@ -22,15 +21,13 @@ import {
   useSessionError,
   useTableEvents,
 } from '../session/useSession';
-import { BoardStrip } from './BoardStrip';
-import { CardFlight, Rect } from './CardFlight';
-import { DrawTargets } from './DrawTargets';
-import { DropZones } from './DropZones';
-import { DropZone, Point, chooseDrop } from './gesture';
+import { CardFlight, Rect } from '../shared/CardFlight';
+import { edgeRect } from '../shared/flightPath';
+import { Throw } from './throw';
+import { FlickZones } from './FlickZones';
 import { Hand, drawnCardId } from './Hand';
-import { PlaceActions } from './PlaceActions';
+import { HandActions } from './HandActions';
 import { JoinScreen } from './JoinScreen';
-import { Tray, TrayMode } from './Tray';
 
 /**
  * A live element's rect, or null when there is nothing to measure.
@@ -45,24 +42,15 @@ function rectOf(selector: string): Rect | null {
   return r.width > 0 ? { x: r.left, y: r.top, width: r.width, height: r.height } : null;
 }
 
-/**
- * The drop zone under a point, or null for neutral space.
- *
- * Hit-tested from here rather than inside Hand for the same reason Hand
- * hit-tests cards through the document: the zones are the parent's, and a
- * hand that knew about them would be a hand that knew what a turn is.
- */
-function dropZoneAt(point: Point): DropZone {
-  if (typeof document.elementFromPoint !== 'function') return null; // jsdom
-  const zone = document
-    .elementFromPoint(point.x, point.y)
-    ?.closest('[data-drop]')
-    ?.getAttribute('data-drop');
-  return zone === 'expedition' || zone === 'discard' ? zone : null;
+function viewport(): { width: number; height: number } {
+  return { width: window.innerWidth, height: window.innerHeight };
 }
 
-/** How long an opponent's move stays on the banner. */
+/** How long an opponent's move stays on the headline. */
 const CUE_MS = 2200;
+
+/** Degrees a thrown card tumbles, turning the way it was thrown. */
+const THROW_SPIN = 26;
 
 /** A card in words, for a cue line. */
 function describe(card: CardModel): string {
@@ -73,6 +61,8 @@ interface Flight {
   card: CardModel;
   from: Rect;
   to: Rect;
+  kind?: 'land' | 'throw';
+  spin?: number;
   reversed?: boolean;
   durationMs?: number;
 }
@@ -83,30 +73,22 @@ export function Phone() {
   const status = useConnectionStatus();
   const error = useSessionError();
   useWakeLock();
+  useLandscapeLock();
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  /** Set on send, cleared by the next view — stops double taps. */
+  /** Set on send, cleared by the next view — stops a double throw. */
   const [busy, setBusy] = useState(false);
   /**
    * Owned here and deliberately *not* cleared by the [view] effect: a flight
    * outlives the state change that caused it, and ends on its own promise.
    */
   const [flight, setFlight] = useState<Flight | null>(null);
-  /**
-   * The chip a card has just landed on, for one pulse. Sequenced because two
-   * cards into the same column is an ordinary pair of turns in this game, and
-   * a bare colour would not change between them — so the second play would
-   * not flash.
-   */
-  const [landed, setLanded] = useState<{ colour: CardModel['colour']; seq: number } | null>(null);
-  const landSeq = useRef(0);
-  /** What the opponent just did, shown briefly in the banner. */
+  /** What the opponent just did, shown briefly in place of the headline. */
   const [opponentCue, setOpponentCue] = useState<string | null>(null);
-  /** The card currently travelling with the thumb, if any. */
-  const [lifted, setLifted] = useState<string | null>(null);
-  /** Which zone that card is over, so it can light up before the release. */
-  const [hoveredZone, setHoveredZone] = useState<DropZone>(null);
-  /** A card dropped on a zone that was not offered: shake it home. */
+  /** The card currently up under the finger, if any. */
+  const [carried, setCarried] = useState<string | null>(null);
+  /** Which way it is leaning, so the wash behind it can arm. */
+  const [armed, setArmed] = useState<PlaceTarget['kind'] | null>(null);
+  /** A card thrown at a direction that was not offered: shake it home. */
   const [refusingId, setRefusingId] = useState<string | null>(null);
 
   const player = view?.viewer === 'player' ? view : null;
@@ -114,26 +96,21 @@ export function Phone() {
 
   /** Last hand seen, so an arrival can be spotted without deriving state. */
   const prevHand = useRef<CardModel[]>([]);
-  /** Where the last draw was tapped, so its flight has a source. */
-  const drawFrom = useRef<Rect | null>(null);
 
   // Buzz when the turn flips to this phone. The screen is often off.
   useEffect(() => {
     if (myTurn) vibrateTurnStart();
   }, [myTurn]);
 
-  // Every new view is the server's answer to *someone's* intent — the
-  // opponent's moves land here too, and those cannot invalidate a card still
-  // sitting in your hand. Dropping the selection unconditionally meant the
-  // card you were holding fell out of your hand whenever they moved.
   useEffect(() => {
     setBusy(false);
-    setSelectedId((id) => (id && player?.hand.some((c) => c.id === id) ? id : null));
   }, [view]);
 
-  // A card arriving in this hand. Driven by a diff rather than an event
-  // because we know it is ours and drawnCardId refuses anything that is not
-  // a clean single arrival — so a reconnect's fresh view cannot trigger it.
+  // A card arriving in this hand — drawn on the table, so it comes in over
+  // the top edge, which is the direction the table is in. Driven by a diff
+  // rather than an event because we know it is ours and drawnCardId refuses
+  // anything that is not a clean single arrival, so a reconnect's fresh view
+  // cannot trigger it.
   useEffect(() => {
     if (!player) return;
     const arrived = drawnCardId(prevHand.current, player.hand);
@@ -144,9 +121,9 @@ export function Phone() {
 
     const card = player.hand.find((c) => c.id === arrived);
     const to = rectOf(`[data-card-id="${arrived}"]`);
-    const from = drawFrom.current;
-    drawFrom.current = null;
-    if (card && from && to) setFlight({ card, from, to, durationMs: DRAW_FLIGHT_MS });
+    if (card && to) {
+      setFlight({ card, from: edgeRect(to, 'top', viewport()), to, durationMs: DRAW_FLIGHT_MS });
+    }
   }, [view]);
 
   // What the opponent just did. Events rather than a diff of their state,
@@ -178,15 +155,8 @@ export function Phone() {
     return () => clearTimeout(timer);
   }, [opponentCue]);
 
-  // The landing pulse owns its own clock now: a dropped card has no flight
-  // to end, so there is nothing else to clear it.
-  useEffect(() => {
-    if (!landed) return;
-    const timer = setTimeout(() => setLanded(null), LAND_MS + 120);
-    return () => clearTimeout(timer);
-  }, [landed]);
-
-  // The shake, on its own clock for the same reason.
+  // The shake, on its own clock: a refused card never flew, so there is no
+  // flight ending to clear it.
   useEffect(() => {
     if (!refusingId) return;
     const timer = setTimeout(() => setRefusingId(null), SHAKE_MS);
@@ -198,12 +168,8 @@ export function Phone() {
     if (!error) return;
     vibrateReject();
     // from/to stay as they were — CardFlight is positioned at `from` and
-    // plays its keyframes backwards, so the card returns to the hand.
+    // plays its keyframes backwards, so the card flies back in.
     setFlight((f) => (f && !f.reversed ? { ...f, reversed: true } : f));
-    // A dropped card never flew, so the flight cannot carry the refusal for
-    // it. It is still sitting in the hand — the view that would remove it is
-    // exactly the one that did not arrive — so shake it where it lies.
-    setRefusingId((id) => id ?? selectedId);
   }, [error]);
 
   if (!session.getCode()) {
@@ -224,98 +190,83 @@ export function Phone() {
   }
 
   /**
-   * The one path to a placement, for both routes into it.
+   * The one path to a placement, for both the throw and the accessible
+   * buttons.
    *
-   * `fly` is the difference between them. A tapped button leaves the card in
-   * the hand, so a copy has to travel to the target; a dropped card is
-   * already sitting on the zone, and flying it back to the fan to fly it out
-   * again would animate the one journey the player just made by hand.
+   * The card is measured where it currently is — mid-carry that is under the
+   * finger, from a button it is still in the row — and thrown from there off
+   * the corresponding edge. Measuring before sending matters: on a LAN the
+   * server's next state can land before the next frame, and by then the card
+   * is out of the hand and there is nothing left to measure.
    */
-  function commit(cardId: string, target: PlaceTarget['kind'], fly: boolean): void {
+  function commit(cardId: string, target: PlaceTarget['kind']): void {
     const card = player?.hand.find((c) => c.id === cardId);
     if (!card) return;
 
-    if (fly) {
-      // Measure before sending: on a LAN the server's next state can land
-      // before the next frame, and by then the card is out of the hand.
-      const from = rectOf(`[data-card-id="${cardId}"]`);
-      const to = rectOf(`[data-zone="${target === 'discard' ? 'discard' : card.colour}"]`);
-      if (from && to) setFlight({ card, from, to });
-    }
-
-    if (target === 'expedition') {
-      landSeq.current += 1;
-      setLanded({ colour: card.colour, seq: landSeq.current });
+    const from = rectOf(`[data-card-id="${cardId}"]`);
+    if (from) {
+      const edge = target === 'discard' ? 'left' : 'right';
+      setFlight({
+        card,
+        from,
+        to: edgeRect(from, edge, viewport()),
+        kind: 'throw',
+        spin: target === 'discard' ? -THROW_SPIN : THROW_SPIN,
+      });
     }
 
     vibrateCommit();
     send(() => session.place(cardId, target));
   }
 
-  const place = (target: PlaceTarget['kind']) => {
-    if (selectedId) commit(selectedId, target, true);
-  };
-
-  /** A held card moved: light whichever zone is under it, once per crossing. */
-  const handleDragMove = (point: Point) => {
-    const zone = dropZoneAt(point);
-    setHoveredZone((current) => {
-      if (current === zone) return current;
-      if (zone) vibrateZone();
-      return zone;
-    });
-  };
-
   /**
-   * A held card was let go. Neutral space puts it back — that is the whole
-   * cancel gesture, and it is why both commits could be moved to the top.
+   * A carried card was let go. Only a throw commits; anything else puts the
+   * card back, which is the whole cancel gesture.
    */
-  const handleRelease = (cardId: string, point: Point | null) => {
-    setLifted(null);
-    setHoveredZone(null);
-    if (!point || busy) return;
-
-    const outcome = chooseDrop(dropZoneAt(point), player?.legalPlacements[cardId] ?? []);
-    if (outcome.kind === 'cancel') return;
-    if (outcome.kind === 'refuse') {
-      // The zone was already visibly dead, so this was deliberate. Say no
-      // out loud rather than silently dropping the gesture.
+  const handleThrow = (cardId: string, outcome: Throw) => {
+    setCarried(null);
+    setArmed(null);
+    if (outcome === 'return' || busy) return;
+    if (outcome === 'refuse') {
+      // The wash was already visibly dead, so this was deliberate. Say no out
+      // loud rather than silently dropping the gesture.
       vibrateReject();
       setRefusingId(cardId);
       return;
     }
-    commit(cardId, outcome.target, false);
+    commit(cardId, outcome);
   };
 
-  const draw = (source: DrawSource) => {
-    drawFrom.current = rectOf(
-      source.kind === 'deck' ? '.draw-deck' : `[data-draw="${source.colour}"]`,
-    );
-    send(() => session.draw(source));
-  };
+  const draw = (source: DrawSource) => send(() => session.draw(source));
 
   const me = player.players[player.seat];
+  const opponent = player.players[player.seat === 0 ? 1 : 0];
   const drawing = myTurn && player.phase === 'draw';
-  // Derived, not asserted: during the window between sending a placement and
-  // the server's answer the card is genuinely gone from the hand.
-  const selected = player.hand.find((c) => c.id === selectedId) ?? null;
+  const carriedCard = carried ? player.hand.find((c) => c.id === carried) ?? null : null;
 
-  const liftedCard = lifted ? player.hand.find((c) => c.id === lifted) ?? null : null;
-
-  // The top of the screen is one place with four things to say. Ordered by
-  // immediacy: a card in the air outranks a phase, and a phase outranks a
-  // selection.
-  const trayMode: TrayMode = liftedCard
-    ? 'drop'
-    : drawing
-      ? 'draw'
-      : selected && myTurn
-        ? 'place'
-        : 'table';
+  const headline = opponentCue
+    ? `${opponent.name} ${opponentCue}`
+    : !myTurn
+      ? `${opponent.name}’s turn`
+      : drawing
+        ? 'Pick a card from the board'
+        : 'Play card';
 
   return (
     <div className="phone">
-      <Banner player={player} myTurn={myTurn} status={status} cue={opponentCue} />
+      <RotateGate />
+
+      {/*
+        aria-live so a turn handover and an opponent's move both announce
+        themselves without stealing focus.
+      */}
+      <header className={`headline ${myTurn ? 'is-active' : ''}`} aria-live="polite">
+        <span className={`headline__text${opponentCue ? ' is-cue' : ''}`}>
+          {player.stage === 'playing' ? headline : 'Lost Cities'}
+        </span>
+        {status !== 'open' && <span className="label">reconnecting…</span>}
+      </header>
+
       {error && (
         <button type="button" className="toast" onClick={() => session.dismissError()}>
           {error}
@@ -326,66 +277,46 @@ export function Phone() {
 
       {player.stage === 'playing' && (
         <>
-          <Tray mode={trayMode}>
-            {trayMode === 'drop' && liftedCard ? (
-              <DropZones
-                card={liftedCard}
-                targets={player.legalPlacements[liftedCard.id] ?? []}
-                column={me.expeditions[liftedCard.colour]}
-                hovered={hoveredZone}
-              />
-            ) : trayMode === 'place' && selected ? (
-              <PlaceActions
-                card={selected}
-                targets={player.legalPlacements[selected.id] ?? []}
-                column={me.expeditions[selected.colour]}
-                busy={busy}
-                onPlace={place}
-              />
-            ) : (
-              // Both 'table' and 'draw'. The row is the same furniture
-              // either way; the draw phase only makes it tappable.
-              <DrawTargets
-                deckCount={player.deckCount}
-                discardTops={player.discardTops}
-                legalDrawSources={player.legalDrawSources}
-                blockedDrawCardId={player.blockedDrawCardId}
-                busy={busy}
-                interactive={drawing}
-                onDraw={draw}
-              />
-            )}
-          </Tray>
+          {/*
+            Behind the hand, and only while a card is up: the two directions
+            that card can go. Not drop targets — see FlickZones.
+          */}
+          {carriedCard && (
+            <FlickZones
+              card={carriedCard}
+              targets={player.legalPlacements[carriedCard.id] ?? []}
+              column={me.expeditions[carriedCard.colour]}
+              armed={armed}
+            />
+          )}
 
           {/*
             The hand stays mounted through the draw phase and through the
-            opponent's turn — receded and inert rather than swapped out. The
-            hard unmount was most of why this screen read as a form.
+            opponent's turn — dimmed and inert rather than swapped out.
           */}
           <Hand
             cards={player.hand}
             legalPlacements={player.legalPlacements}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
             disabled={busy}
             muted={!myTurn || drawing}
             away={!myTurn}
             refusingId={refusingId}
-            onLift={setLifted}
-            onDragMove={handleDragMove}
-            onRelease={handleRelease}
+            onCarry={setCarried}
+            onArmed={setArmed}
+            onThrow={handleThrow}
           />
 
-          {/*
-            Your own side of the table, and the answer to the question the
-            draw phase used to leave unanswerable: taking the green 8 is a
-            good idea or a dead card entirely depending on where your green
-            column stands, and this is now on screen while you decide.
-          */}
-          <BoardStrip
-            expeditions={me.expeditions}
-            score={me.currentRoundScore}
-            flashColour={landed?.colour ?? null}
+          <HandActions
+            hand={player.hand}
+            legalPlacements={player.legalPlacements}
+            legalDrawSources={player.legalDrawSources}
+            discardTops={player.discardTops}
+            deckCount={player.deckCount}
+            phase={player.phase}
+            myTurn={myTurn}
+            busy={busy}
+            onPlace={commit}
+            onDraw={draw}
           />
         </>
       )}
@@ -402,50 +333,32 @@ export function Phone() {
           card={flight.card}
           from={flight.from}
           to={flight.to}
+          kind={flight.kind}
+          spin={flight.spin}
           reversed={flight.reversed}
           durationMs={flight.durationMs}
-          onDone={() => {
-            setFlight(null);
-            setLanded(null);
-          }}
+          onDone={() => setFlight(null)}
         />
       )}
     </div>
   );
 }
 
-function Banner({
-  player,
-  myTurn,
-  status,
-  cue,
-}: {
-  player: PlayerView;
-  myTurn: boolean;
-  status: string;
-  cue?: string | null;
-}) {
-  const opponent = player.players[player.seat === 0 ? 1 : 0];
-
-  const turnMessage = !myTurn
-    ? `${opponent.name} is ${player.phase === 'place' ? 'placing' : 'drawing'}`
-    : player.phase === 'place'
-      ? 'Your turn — place a card'
-      : 'Your turn — draw a card';
-
-  const message = cue ? `${opponent.name} ${cue}` : turnMessage;
-
+/**
+ * Shown only in portrait, by CSS alone.
+ *
+ * No orientation listener and no JS branch: a media query cannot get out of
+ * step with the layout it is guarding, and the layout below it is landscape
+ * from top to bottom.
+ */
+function RotateGate() {
   return (
-    // aria-live so a turn handover and an opponent's move both announce
-    // themselves without stealing focus.
-    <header className={`banner ${myTurn ? 'is-active' : ''}`} aria-live="polite">
-      <span className={`banner__message${cue ? ' is-cue' : ''}`}>
-        {player.stage === 'playing' ? message : 'Lost Cities'}
+    <div className="rotate-gate">
+      <span className="rotate-gate__mark" aria-hidden="true">
+        ⟳
       </span>
-      <span className="label">
-        {status !== 'open' ? 'reconnecting…' : `deck ${player.deckCount}`}
-      </span>
-    </header>
+      <p className="rotate-gate__text">Turn your phone sideways</p>
+    </div>
   );
 }
 
@@ -480,12 +393,7 @@ function RoundGate({ view, onReady }: { view: PlayerView; onReady: () => void })
     <div className="phone__panel">
       <p className="label">Round {view.round} scored</p>
       <p className="phone__score">{scored}</p>
-      <button
-        type="button"
-        className="action action--play"
-        disabled={ready}
-        onClick={onReady}
-      >
+      <button type="button" className="action action--play" disabled={ready} onClick={onReady}>
         {ready ? 'Waiting for the other player…' : 'Ready for the next round'}
       </button>
     </div>

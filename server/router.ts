@@ -63,10 +63,16 @@ function dispatch(ctx: ConnectionContext, message: ClientMessage): void {
       return ctx.entry!.room.place(seat, message.cardId, message.target);
     }
 
+    // The one intent the table may send. Drawing is a reach across the table
+    // for a card everyone can see, so it is the tablet's gesture; placing
+    // still comes from the hand that holds the card.
     case 'draw': {
+      if (!ctx.entry) return fail(ctx, 'Join a game first.');
+      if (ctx.role === 'table') return ctx.entry.room.drawFromTable(message.source);
+
       const seat = requireSeat(ctx);
       if (seat === null) return;
-      return ctx.entry!.room.draw(seat, message.source);
+      return ctx.entry.room.draw(seat, message.source);
     }
 
     case 'readyNextRound': {
