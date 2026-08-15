@@ -140,6 +140,13 @@
   height: 100%;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
+  /* Nothing here is text to copy, and dragging across a card otherwise
+     leaves a selection behind. The next press then starts a native drag of
+     that selection, which arrives as a pointercancel and silently kills the
+     reach — the second pull at a pile does nothing at all. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* Both bars own a stacking layer above the board. .column is position:
@@ -347,6 +354,41 @@
 .discard-row__piles {
   display: flex;
   gap: 1rem;
+}
+
+/* ---- the one gesture the table takes ---- */
+
+/* Armed only while someone is drawing, and only on the piles the server
+   marked legal. Everything else on this display stays read-only. */
+.discard-row.is-armed {
+  touch-action: none;
+}
+
+.discard-row__pile,
+.deck {
+  transition: transform var(--motion-fast), filter var(--motion-fast);
+}
+
+/* Available to reach for. A lift rather than a glow: the affordance being
+   taught is that these piles move. */
+.discard-row.is-armed .is-drawable {
+  cursor: grab;
+  filter: drop-shadow(0 3px 6px rgb(31 29 26 / 0.28));
+}
+
+/* Being pulled. No transition — the position is the finger's, and easing it
+   would put the card behind the hand dragging it. */
+.is-reaching {
+  transition: none;
+  z-index: 5;
+  filter: drop-shadow(0 10px 18px rgb(31 29 26 / 0.42));
+}
+
+/* Pulled away from the seat that is drawing, so letting go will do nothing.
+   Said while it is happening rather than at the end. */
+.is-reaching.is-wrong-way {
+  opacity: 0.5;
+  filter: grayscale(0.6);
 }
 
 .deck {

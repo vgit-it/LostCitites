@@ -9,7 +9,7 @@
 // pressing a card and picking a card are the same act, so there is nothing
 // for a delay to disambiguate.
 
-import { Point, Sample, trimSamples } from './carry';
+import { Point, Sample, trimSamples } from '../shared/carry';
 
 export type GesturePhase = 'idle' | 'carrying';
 

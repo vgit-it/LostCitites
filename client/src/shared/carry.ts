@@ -1,11 +1,14 @@
-// The feel of a card carried under a finger, and what letting go of it meant.
+// The feel of a card carried under a finger.
 //
-// Pure — no DOM, no timers, no React. The same reason fanLayout and
-// columnMetrics live alone: this is the arithmetic that decides whether the
-// gesture feels like a card or like a div, and it is only checkable if it can
-// be called with numbers.
-
-import { PlaceTarget } from '@shared/types';
+// Pure — no DOM, no timers, no React. The same reason columnMetrics lives
+// alone: this is the arithmetic that decides whether a gesture feels like a
+// card or like a div, and it is only checkable if it can be called with
+// numbers.
+//
+// Shared, because both devices carry cards now: the phone lifts one out of
+// the hand, and the table lifts one off a discard pile. What each does with
+// the release is its own business and lives next to it — phone/throw.ts and
+// table/drawGesture.ts.
 
 export interface Point {
   x: number;
@@ -112,62 +115,16 @@ export function trimSamples(samples: Sample[], now: number): Sample[] {
 }
 
 // ------------------------------------------------------------
-// What the release meant
+// Committing
 // ------------------------------------------------------------
 
 /**
  * px/ms. A flick: fast enough that distance stops mattering.
  *
- * 1000px/s, and the height of the bar is the point. An unhurried drag across
- * a phone runs at 300–800px/s, and it is *instantaneous* speed being measured
- * here, so a threshold much below this would read the middle of an ordinary
- * careful drag as a throw. Slow, deliberate throws are what THROW_DX is for.
+ * 1000px/s, and the height of the bar is the point. An unhurried drag runs at
+ * 300–800px/s, and it is *instantaneous* speed being measured here, so a
+ * threshold much below this would read the middle of an ordinary careful drag
+ * as a throw. Slow, deliberate gestures are what the distance thresholds are
+ * for, and each device sets its own.
  */
-export const FLICK_VX = 1;
-
-/** px. A shove: slow, but far enough that it cannot be a mis-tap. */
-export const THROW_DX = 88;
-
-export type Throw = PlaceTarget['kind'] | 'refuse' | 'return';
-
-export interface Release {
-  /** Horizontal distance from where the card was picked up. */
-  dx: number;
-  /** Horizontal speed at the moment of release, px/ms. */
-  vx: number;
-  /** From the view. The phone does no legality work of its own. */
-  legalTargets: PlaceTarget['kind'][];
-}
-
-/**
- * Right plays the card to its own expedition, left discards it. There is no
- * target to choose: a card has exactly one colour, so the direction is the
- * whole decision.
- *
- * Either a flick or a shove commits, so a quick throw and a slow deliberate
- * push both work — one threshold alone always strands one of the two hands
- * that play this game.
- */
-export function flickOutcome({ dx, vx, legalTargets }: Release): Throw {
-  const flicked = Math.abs(vx) >= FLICK_VX;
-  if (!flicked && Math.abs(dx) < THROW_DX) return 'return';
-
-  // When speed and distance disagree — dragged left, flicked back right — the
-  // speed wins. The last thing the hand did is the intent.
-  const rightward = flicked ? vx > 0 : dx > 0;
-  const target: PlaceTarget['kind'] = rightward ? 'expedition' : 'discard';
-
-  return legalTargets.includes(target) ? target : 'refuse';
-}
-
-/**
- * Which side is armed mid-carry, for the highlight under the card. Deliberately
- * a lower bar than committing: the wash should light up well before the throw
- * would land, so the player learns the gesture by seeing it arm.
- */
-export const ARM_DX = 24;
-
-export function armedSide(dx: number): PlaceTarget['kind'] | null {
-  if (Math.abs(dx) < ARM_DX) return null;
-  return dx > 0 ? 'expedition' : 'discard';
-}
+export const FLICK_V = 1;

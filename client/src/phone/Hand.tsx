@@ -6,8 +6,9 @@
 //
 // Presentational — cards in, a decision out. The hand reports *which way the
 // card went*, not what was underneath it, so it needs to know nothing about
-// what a turn is or where anything lives. The arithmetic is all in carry.ts
-// and gesture.ts; this file owns the pointer events and the animation frame.
+// what a turn is or where anything lives. The arithmetic is all in
+// shared/carry.ts, throw.ts and gesture.ts; this file owns the pointer events
+// and the animation frame.
 //
 // Sorted by colour then value so the same card is always in the same place.
 
@@ -18,14 +19,12 @@ import { vibrateLift, vibrateZone } from '../platform/vibrate';
 import {
   CARRY_LIFT_PX,
   Point,
-  Throw,
-  armedSide,
-  flickOutcome,
   followStep,
   isSettled,
   tiltFor,
   velocityFrom,
-} from './carry';
+} from '../shared/carry';
+import { Throw, armedSide, flickOutcome } from './throw';
 import { dragOf, gestureReducer, initialGesture } from './gesture';
 
 export interface HandProps {

@@ -23,7 +23,7 @@ import {
 } from '../session/useSession';
 import { CardFlight, Rect } from '../shared/CardFlight';
 import { edgeRect } from '../shared/flightPath';
-import { Throw } from './carry';
+import { Throw } from './throw';
 import { FlickZones } from './FlickZones';
 import { Hand, drawnCardId } from './Hand';
 import { HandActions } from './HandActions';

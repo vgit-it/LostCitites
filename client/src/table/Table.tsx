@@ -1,9 +1,13 @@
-// The shared table display. Landscape, read to from ~1 metre, and
-// deliberately input-free: no tap does anything, so leaning on the tablet
-// cannot change the game.
+// The shared table display. Landscape, read to from ~1 metre.
+//
+// Very nearly input-free, and for the original reason: nothing here responds
+// to a tap, so leaning on the tablet cannot change the game. The single
+// exception is the reach for a card during a draw phase — see
+// drawGesture.ts, which explains why a directional pull is safe where a tap
+// would not have been.
 
 import { useEffect, useRef, useState } from 'react';
-import { COLOURS, Card as CardModel, TableView } from '@shared/types';
+import { COLOURS, Card as CardModel, DrawSource, TableView } from '@shared/types';
 import {
   useClientView,
   useConnectionStatus,
@@ -129,7 +133,13 @@ export function Table({ code }: { code: string }) {
     <div className="table">
       {status !== 'open' && <div className="reconnect-bar label">Reconnecting…</div>}
       {view.stage === 'lobby' && <Lobby view={view} code={code} />}
-      {view.stage === 'playing' && <Board view={view} arrivingId={arrivingId} />}
+      {view.stage === 'playing' && (
+        <Board
+          view={view}
+          arrivingId={arrivingId}
+          onDraw={(source) => session.draw(source)}
+        />
+      )}
       {view.stage === 'roundEnd' && (
         <RoundEnd round={view.round} players={view.players} ready={view.readyForNextRound} />
       )}
@@ -184,7 +194,15 @@ function Lobby({ view, code }: { view: TableView; code: string }) {
   );
 }
 
-function Board({ view, arrivingId }: { view: TableView; arrivingId: string | null }) {
+function Board({
+  view,
+  arrivingId,
+  onDraw,
+}: {
+  view: TableView;
+  arrivingId: string | null;
+  onDraw: (source: DrawSource) => void;
+}) {
   const [seat0, seat1] = view.players;
   const active = view.players[view.turn];
 
@@ -230,10 +248,18 @@ function Board({ view, arrivingId }: { view: TableView; arrivingId: string | nul
         ))}
       </section>
 
+      {/*
+        The one interactive thing on the table. The player to move reaches
+        for a pile the server has marked legal and pulls it toward their own
+        side; see drawGesture.ts for why that is safe where a tap was not.
+      */}
       <DiscardRow
         deckCount={view.deckCount}
         discardTops={view.discardTops}
         arrivingId={arrivingId}
+        legalDrawSources={view.legalDrawSources}
+        activeSeat={view.turn}
+        onDraw={onDraw}
       />
 
       <section

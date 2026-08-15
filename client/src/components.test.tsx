@@ -13,18 +13,16 @@ import { DiscardRow, deckUrgency } from './table/DiscardRow';
 import { PlayerBreakdown } from './table/RoundEnd';
 import { Hand, drawnCardId, sortHand } from './phone/Hand';
 import {
-  ARM_DX,
-  FLICK_VX,
+  FLICK_V,
   MAX_TILT_DEG,
-  THROW_DX,
-  armedSide,
-  flickOutcome,
   followStep,
   isSettled,
   tiltFor,
   trimSamples,
   velocityFrom,
-} from './phone/carry';
+} from './shared/carry';
+import { ARM_DX, THROW_DX, armedSide, flickOutcome } from './phone/throw';
+import { REACH_PX, reachOutcome, towardSeat } from './table/drawGesture';
 import { dragOf, gestureReducer, initialGesture } from './phone/gesture';
 import { FlickZones } from './phone/FlickZones';
 import { HandActions } from './phone/HandActions';
@@ -692,14 +690,14 @@ describe('carrying a card', () => {
       { x: 302, t: 400 },
       { x: 303, t: 460 },
     ];
-    expect(Math.abs(velocityFrom(paused))).toBeLessThan(FLICK_VX);
+    expect(Math.abs(velocityFrom(paused))).toBeLessThan(FLICK_V);
 
     const flicked = [
       { x: 0, t: 400 },
       { x: 40, t: 440 },
       { x: 90, t: 470 },
     ];
-    expect(velocityFrom(flicked)).toBeGreaterThan(FLICK_VX);
+    expect(velocityFrom(flicked)).toBeGreaterThan(FLICK_V);
   });
 
   it('has no opinion about speed without two samples to compare', () => {
@@ -723,8 +721,8 @@ describe('what a throw meant', () => {
   const both: Array<'expedition' | 'discard'> = ['expedition', 'discard'];
 
   it('commits on speed alone, even from a short drag', () => {
-    expect(flickOutcome({ dx: 20, vx: FLICK_VX + 0.2, legalTargets: both })).toBe('expedition');
-    expect(flickOutcome({ dx: -20, vx: -FLICK_VX - 0.2, legalTargets: both })).toBe('discard');
+    expect(flickOutcome({ dx: 20, vx: FLICK_V + 0.2, legalTargets: both })).toBe('expedition');
+    expect(flickOutcome({ dx: -20, vx: -FLICK_V - 0.2, legalTargets: both })).toBe('discard');
   });
 
   it('commits on distance alone, however slowly it was pushed', () => {
@@ -733,7 +731,7 @@ describe('what a throw meant', () => {
   });
 
   it('puts the card back when it was neither thrown nor pushed far', () => {
-    expect(flickOutcome({ dx: THROW_DX - 1, vx: FLICK_VX - 0.01, legalTargets: both })).toBe(
+    expect(flickOutcome({ dx: THROW_DX - 1, vx: FLICK_V - 0.01, legalTargets: both })).toBe(
       'return',
     );
     expect(flickOutcome({ dx: 0, vx: 0, legalTargets: both })).toBe('return');
@@ -741,7 +739,7 @@ describe('what a throw meant', () => {
 
   it('lets the last thing the hand did win', () => {
     // Dragged well left, then flicked back to the right before letting go.
-    expect(flickOutcome({ dx: -200, vx: FLICK_VX + 0.3, legalTargets: both })).toBe('expedition');
+    expect(flickOutcome({ dx: -200, vx: FLICK_V + 0.3, legalTargets: both })).toBe('expedition');
   });
 
   it('refuses a direction the server did not offer', () => {
@@ -885,6 +883,148 @@ describe('flight paths', () => {
 
   it('finds the centre of a rect', () => {
     expect(centreOf(rect)).toEqual({ x: 140, y: 260 });
+  });
+});
+
+describe('reaching across the table for a card', () => {
+  it('takes a card pulled toward the seat that is drawing', () => {
+    // Seat 0 reads the table from the bottom, so its own edge is downward.
+    expect(reachOutcome({ dy: REACH_PX + 1, vy: 0, seat: 0 })).toBe('take');
+    expect(reachOutcome({ dy: -REACH_PX - 1, vy: 0, seat: 1 })).toBe('take');
+    expect(towardSeat(0)).toBe(1);
+    expect(towardSeat(1)).toBe(-1);
+  });
+
+  it('puts it back when the pull went the other way', () => {
+    // This is the whole reason the table can take input at all: a lean or the
+    // wrong player's stray swipe does not travel toward the seat on turn.
+    expect(reachOutcome({ dy: -200, vy: -3, seat: 0 })).toBe('return');
+    expect(reachOutcome({ dy: 200, vy: 3, seat: 1 })).toBe('return');
+  });
+
+  it('puts it back when the pull was too small to mean anything', () => {
+    expect(reachOutcome({ dy: REACH_PX - 1, vy: 0, seat: 0 })).toBe('return');
+    expect(reachOutcome({ dy: 0, vy: 0, seat: 0 })).toBe('return');
+  });
+
+  it('takes a quick flick that never travelled far', () => {
+    expect(reachOutcome({ dy: 10, vy: FLICK_V + 0.5, seat: 0 })).toBe('take');
+    expect(reachOutcome({ dy: -10, vy: -FLICK_V - 0.5, seat: 1 })).toBe('take');
+  });
+
+  it('asks for less than a throw does, because a reach is not a throw', () => {
+    expect(REACH_PX).toBeLessThan(THROW_DX);
+  });
+});
+
+describe('the discard row', () => {
+  const tops = { ...noTops, green: num('green', 9), red: num('red', 3) };
+
+  function reach(el: HTMLElement, dy: number): void {
+    fireEvent.pointerDown(el, { clientX: 100, clientY: 300, button: 0 });
+    fireEvent.pointerMove(el, { clientX: 100, clientY: 300 + dy });
+    fireEvent.pointerUp(el, { clientX: 100, clientY: 300 + dy });
+  }
+
+  it('is inert with no draw sources — which is every phase but one', () => {
+    const onDraw = vi.fn();
+    const { container } = render(
+      <DiscardRow deckCount={40} discardTops={tops} legalDrawSources={[]} activeSeat={0} onDraw={onDraw} />,
+    );
+
+    reach(container.querySelector('[data-pile="green"]') as HTMLElement, 120);
+    expect(onDraw).not.toHaveBeenCalled();
+    expect(container.querySelector('.discard-row')?.className).not.toContain('is-armed');
+  });
+
+  it('draws the pile that was pulled toward the player on turn', () => {
+    const onDraw = vi.fn();
+    const { container } = render(
+      <DiscardRow
+        deckCount={40}
+        discardTops={tops}
+        legalDrawSources={[{ kind: 'deck' }, { kind: 'discard', colour: 'green' }]}
+        activeSeat={0}
+        onDraw={onDraw}
+      />,
+    );
+
+    reach(container.querySelector('[data-pile="green"]') as HTMLElement, REACH_PX + 20);
+    expect(onDraw).toHaveBeenCalledWith({ kind: 'discard', colour: 'green' });
+
+    reach(container.querySelector('[data-deck]') as HTMLElement, REACH_PX + 20);
+    expect(onDraw).toHaveBeenLastCalledWith({ kind: 'deck' });
+  });
+
+  it('ignores a pull on a pile the server did not offer', () => {
+    const onDraw = vi.fn();
+    const { container } = render(
+      <DiscardRow
+        deckCount={40}
+        discardTops={tops}
+        legalDrawSources={[{ kind: 'discard', colour: 'green' }]}
+        activeSeat={0}
+        onDraw={onDraw}
+      />,
+    );
+
+    // red has a top card, but it is blocked or otherwise not on offer.
+    reach(container.querySelector('[data-pile="red"]') as HTMLElement, REACH_PX + 20);
+    expect(onDraw).not.toHaveBeenCalled();
+  });
+
+  it('ignores a pull away from the seat that is drawing', () => {
+    const onDraw = vi.fn();
+    const { container } = render(
+      <DiscardRow
+        deckCount={40}
+        discardTops={tops}
+        legalDrawSources={[{ kind: 'discard', colour: 'green' }]}
+        activeSeat={0}
+        onDraw={onDraw}
+      />,
+    );
+
+    reach(container.querySelector('[data-pile="green"]') as HTMLElement, -REACH_PX - 40);
+    expect(onDraw).not.toHaveBeenCalled();
+  });
+
+  it('marks a wrong-way pull while it is happening', () => {
+    const { container } = render(
+      <DiscardRow
+        deckCount={40}
+        discardTops={tops}
+        legalDrawSources={[{ kind: 'discard', colour: 'green' }]}
+        activeSeat={0}
+        onDraw={vi.fn()}
+      />,
+    );
+
+    const pile = container.querySelector('[data-pile="green"]') as HTMLElement;
+    fireEvent.pointerDown(pile, { clientX: 100, clientY: 300, button: 0 });
+    fireEvent.pointerMove(pile, { clientX: 100, clientY: 260 });
+
+    expect(pile.className).toContain('is-reaching');
+    expect(pile.className).toContain('is-wrong-way');
+    expect(pile.style.transform).toBe('translateY(-40.0px)');
+  });
+
+  it('leaves a taken card where the finger left it, for the flight to pick up', () => {
+    // Snapping it home and flying it out again would animate the journey the
+    // player just made by hand.
+    const { container } = render(
+      <DiscardRow
+        deckCount={40}
+        discardTops={tops}
+        legalDrawSources={[{ kind: 'discard', colour: 'green' }]}
+        activeSeat={0}
+        onDraw={vi.fn()}
+      />,
+    );
+
+    const pile = container.querySelector('[data-pile="green"]') as HTMLElement;
+    reach(pile, REACH_PX + 20);
+    expect(pile.style.transform).toBe(`translateY(${(REACH_PX + 20).toFixed(1)}px)`);
   });
 });
 
