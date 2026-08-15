@@ -23,6 +23,7 @@ import {
 } from '../session/useSession';
 import { CardFlight, Rect } from '../shared/CardFlight';
 import { edgeRect } from '../shared/flightPath';
+import { Invite, resolveInvite } from '../shared/invite';
 import { Throw } from './throw';
 import { FlickZones } from './FlickZones';
 import { Hand, drawnCardId } from './Hand';
@@ -67,7 +68,15 @@ interface Flight {
   durationMs?: number;
 }
 
-export function Phone() {
+export function Phone({
+  invite = null,
+  lastName = '',
+}: {
+  /** What a scanned QR asked for, if this device opened one. */
+  invite?: Invite | null;
+  /** This device's name from a previous game, offered as a default. */
+  lastName?: string;
+} = {}) {
   const session = useSession();
   const view = useClientView();
   const status = useConnectionStatus();
@@ -172,8 +181,17 @@ export function Phone() {
     setFlight((f) => (f && !f.reversed ? { ...f, reversed: true } : f));
   }, [error]);
 
-  if (!session.getCode()) {
-    return <JoinScreen onJoin={(code, seat, name) => session.joinPlayer(code, seat, name)} />;
+  const invited = resolveInvite(invite, session.getCode());
+
+  if (!session.getCode() || invited) {
+    return (
+      <JoinScreen
+        initialCode={invited?.code ?? ''}
+        initialSeat={invited?.seat ?? 0}
+        initialName={lastName}
+        onJoin={(code, seat, name) => session.joinPlayer(code, seat, name)}
+      />
+    );
   }
 
   if (!player) {

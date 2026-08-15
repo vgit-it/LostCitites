@@ -29,8 +29,13 @@ import { HandActions } from './phone/HandActions';
 import { expeditionHint, placementWeight, throwLabel } from './phone/columnRead';
 import { CardFlight } from './shared/CardFlight';
 import { centreOf, edgeOfSeat, edgeRect } from './shared/flightPath';
+import { Invite, joinUrl, parseInvite, resolveInvite } from './shared/invite';
 import { columnExtent, columnMetrics, sideMetrics } from './table/columnMetrics';
 import { planFlight } from './table/flights';
+import { JoinCode } from './table/JoinCode';
+import { qrMatrix, qrPath } from './table/qrCode';
+import { SeatInvite, SeatSlot } from './table/Table';
+import { JoinScreen } from './phone/JoinScreen';
 import {
   canVibrate,
   resetVibrateThrottle,
@@ -1116,7 +1121,154 @@ describe('planning a card’s journey across the table', () => {
   });
 });
 
+describe('the join link', () => {
+  const location = { origin: 'http://192.168.1.5:3001', pathname: '/table' };
 
+  it('encodes the room and the seat, and swaps the table path for the phone one', () => {
+    expect(joinUrl(location, { code: '417', seat: 0 })).toBe(
+      'http://192.168.1.5:3001/play?code=417&seat=0',
+    );
+  });
+
+  it('round-trips through parseInvite for both seats', () => {
+    for (const seat of [0, 1] as const) {
+      const invite: Invite = { code: '417', seat };
+      expect(parseInvite(new URL(joinUrl(location, invite)).search)).toEqual(invite);
+    }
+  });
+
+  it('keeps a subpath install’s prefix, so a PR preview still produces a working link', () => {
+    const url = joinUrl({ origin: 'http://x', pathname: '/preview-42/table' }, { code: '417', seat: 1 });
+    expect(url).toBe('http://x/preview-42/play?code=417&seat=1');
+  });
+
+  it('refuses a missing, short, or leading-zero code rather than guess', () => {
+    expect(parseInvite('')).toBeNull();
+    expect(parseInvite('?code=12&seat=0')).toBeNull();
+    expect(parseInvite('?code=099&seat=0')).toBeNull();
+    expect(parseInvite('?code=abc&seat=0')).toBeNull();
+  });
+
+  it('refuses a missing or out-of-range seat', () => {
+    expect(parseInvite('?code=417')).toBeNull();
+    expect(parseInvite('?code=417&seat=2')).toBeNull();
+  });
+});
+
+describe('which invite wins', () => {
+  it('lets a scanned link for a different room override a stored membership', () => {
+    expect(resolveInvite({ code: '417', seat: 0 }, '512')).toEqual({ code: '417', seat: 0 });
+  });
+
+  it('is a no-op for the room this device already joined — re-scanning just resumes', () => {
+    expect(resolveInvite({ code: '417', seat: 0 }, '417')).toBeNull();
+  });
+
+  it('is a no-op with nothing scanned', () => {
+    expect(resolveInvite(null, '417')).toBeNull();
+  });
+});
+
+describe('a QR, as data', () => {
+  it('produces a square matrix with the three finder patterns in the corners', () => {
+    const matrix = qrMatrix('http://192.168.1.5:3001/play?code=417&seat=0');
+
+    expect(matrix.length).toBeGreaterThanOrEqual(21);
+    expect(matrix.length % 2).toBe(1); // QR versions are always odd-sized
+    for (const row of matrix) expect(row).toHaveLength(matrix.length);
+
+    // The outer ring of each 7x7 finder square is a solid line — enough to
+    // tell this is a real code and not noise, without shipping a decoder.
+    const n = matrix.length;
+    expect(matrix[0].slice(0, 7).every(Boolean)).toBe(true); // top-left
+    expect(matrix[0].slice(n - 7).every(Boolean)).toBe(true); // top-right
+    expect(matrix[n - 1].slice(0, 7).every(Boolean)).toBe(true); // bottom-left
+  });
+
+  it('turns a hand-checked matrix into the expected path and viewBox', () => {
+    const matrix = [
+      [true, false, true],
+      [false, true, false],
+      [true, false, true],
+    ];
+    expect(qrPath(matrix, 1)).toEqual({
+      d: 'M1 1h1v1h-1zM3 1h1v1h-1zM2 2h1v1h-1zM1 3h1v1h-1zM3 3h1v1h-1z',
+      size: 5,
+    });
+  });
+
+  it('draws nothing for an all-light matrix, not a broken path', () => {
+    expect(qrPath([[false, false], [false, false]]).d).toBe('');
+  });
+});
+
+describe('the join code, drawn', () => {
+  it('renders as a named, decodable image', () => {
+    render(<JoinCode url="http://x/play?code=417&seat=0" label="Scan to join as seat 1" />);
+    const svg = screen.getByRole('img', { name: 'Scan to join as seat 1' });
+    expect(svg.querySelector('path')?.getAttribute('d')).toBeTruthy();
+  });
+});
+
+describe('a seat slot in the lobby', () => {
+  const invites: SeatInvite[] = [
+    { seat: 0, url: 'http://x/play?code=417&seat=0' },
+    { seat: 1, url: 'http://x/play?code=417&seat=1' },
+  ];
+
+  it('shows a QR for an empty seat that has one', () => {
+    render(<SeatSlot seat={0} invites={invites} />);
+    expect(screen.getByRole('img', { name: /seat 1/i })).toBeTruthy();
+  });
+
+  it('shows the player’s name instead once they are connected, never both', () => {
+    render(<SeatSlot seat={0} name="Paul" invites={invites} />);
+    expect(screen.getByText('Paul')).toBeTruthy();
+    expect(screen.queryByRole('img')).toBeNull();
+  });
+
+  it('falls back to plain waiting text when no invites were given', () => {
+    // The demo's table has no /play route to send anyone to.
+    render(<SeatSlot seat={1} />);
+    expect(screen.getByText(/seat 2 — waiting/i)).toBeTruthy();
+    expect(screen.queryByRole('img')).toBeNull();
+  });
+});
+
+describe('the join screen', () => {
+  function codeInput(container: HTMLElement) {
+    return container.querySelector<HTMLInputElement>('.join__code')!;
+  }
+  function nameInput(container: HTMLElement) {
+    return container.querySelector<HTMLInputElement>('.join__name')!;
+  }
+
+  it('starts blank and focuses the code field, with nothing yet to send', () => {
+    const { container } = render(<JoinScreen onJoin={vi.fn()} />);
+    expect(codeInput(container).value).toBe('');
+    expect(document.activeElement).toBe(codeInput(container));
+    expect((screen.getByRole('button', { name: 'Join' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('prefills from a scanned invite, focuses the name, and joins on submit with just a name typed', () => {
+    const onJoin = vi.fn();
+    const { container } = render(<JoinScreen initialCode="417" initialSeat={1} onJoin={onJoin} />);
+
+    expect(codeInput(container).value).toBe('417');
+    expect(document.activeElement).toBe(nameInput(container));
+    expect(screen.getByRole('button', { name: 'Seat 2' }).className).toContain('is-selected');
+
+    fireEvent.change(nameInput(container), { target: { value: 'Paul' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Join' }));
+
+    expect(onJoin).toHaveBeenCalledWith('417', 1, 'Paul');
+  });
+
+  it('offers a remembered name as a default, editable like any other field', () => {
+    const { container } = render(<JoinScreen initialName="Paul" onJoin={vi.fn()} />);
+    expect(nameInput(container).value).toBe('Paul');
+  });
+});
 
 describe('haptics', () => {
   afterEach(() => {

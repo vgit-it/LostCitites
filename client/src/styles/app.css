@@ -457,12 +457,14 @@
 
 .lobby__seats li {
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 0.5rem;
   opacity: 0.5;
 }
 
-.lobby__seats li.is-connected {
+.lobby__seats li.is-connected,
+.lobby__seats li.has-code {
   opacity: 1;
 }
 
@@ -476,6 +478,19 @@
 .is-connected .lobby__dot {
   background: var(--canopy);
   border-color: var(--canopy);
+}
+
+/* A QR is scenery a camera has to lock onto, not text — dimming it with
+   opacity is why .has-code above overrides the default fade. The plate
+   behind it (not the SVG itself) is what carries the padding and border;
+   crisp rendering is set on the element itself, in JoinCode.tsx. */
+.join-qr {
+  width: clamp(7rem, 18vh, 11rem);
+  height: clamp(7rem, 18vh, 11rem);
+  padding: 0.5rem;
+  background: var(--paper-dim);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
 }
 
 .picker__choices {

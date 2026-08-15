@@ -1,18 +1,29 @@
 // Code, seat and name entry. Shown once per device — after a successful
 // join the membership is persisted, so a refresh goes straight to the game.
+//
+// A scanned QR arrives here as initialCode/initialSeat, already valid: the
+// only thing left to type is a name, so focus goes there instead of the
+// code field.
 
 import { useState } from 'react';
 import { Seat } from '@shared/types';
 
 export function JoinScreen({
+  initialCode = '',
+  initialSeat = 0,
+  initialName = '',
   onJoin,
 }: {
+  initialCode?: string;
+  initialSeat?: Seat;
+  initialName?: string;
   onJoin: (code: string, seat: Seat, name: string) => void;
 }) {
-  const [code, setCode] = useState('');
-  const [seat, setSeat] = useState<Seat>(0);
-  const [name, setName] = useState('');
+  const [code, setCode] = useState(initialCode);
+  const [seat, setSeat] = useState<Seat>(initialSeat);
+  const [name, setName] = useState(initialName);
 
+  const prefilled = /^[1-9][0-9]{2}$/.test(initialCode);
   const ready = /^[1-9][0-9]{2}$/.test(code) && name.trim().length > 0;
 
   return (
@@ -35,7 +46,7 @@ export function JoinScreen({
           value={code}
           onChange={(event) => setCode(event.target.value.replace(/\D/g, ''))}
           placeholder="000"
-          autoFocus
+          autoFocus={!prefilled}
         />
       </label>
 
@@ -47,6 +58,7 @@ export function JoinScreen({
           maxLength={12}
           onChange={(event) => setName(event.target.value)}
           placeholder="Paul"
+          autoFocus={prefilled}
         />
       </label>
 

@@ -7,7 +7,7 @@
 // would not have been.
 
 import { useEffect, useRef, useState } from 'react';
-import { COLOURS, Card as CardModel, DrawSource, TableView } from '@shared/types';
+import { COLOURS, Card as CardModel, DrawSource, Seat, TableView } from '@shared/types';
 import {
   useClientView,
   useConnectionStatus,
@@ -22,7 +22,14 @@ import { Column } from './Column';
 import { ColumnMetrics, sideMetrics } from './columnMetrics';
 import { DiscardRow } from './DiscardRow';
 import { FlightPlan, planFlight } from './flights';
+import { JoinCode } from './JoinCode';
 import { MatchEnd, RoundEnd } from './RoundEnd';
+
+/** A seat's join link, for the lobby QR. What `main.tsx` builds from the code. */
+export interface SeatInvite {
+  seat: Seat;
+  url: string;
+}
 
 /**
  * The two numbers the CSS needs to size a side's cards, as custom properties.
@@ -60,7 +67,7 @@ interface Flight {
   kind: 'land' | 'throw';
 }
 
-export function Table({ code }: { code: string }) {
+export function Table({ code, invites }: { code: string; invites?: SeatInvite[] }) {
   const session = useSession();
   const view = useClientView();
   const status = useConnectionStatus();
@@ -126,13 +133,13 @@ export function Table({ code }: { code: string }) {
   }, [session, code]);
 
   if (!view || view.viewer !== 'table') {
-    return <Waiting code={code} status={status} />;
+    return <Waiting code={code} status={status} invites={invites} />;
   }
 
   return (
     <div className="table">
       {status !== 'open' && <div className="reconnect-bar label">Reconnecting…</div>}
-      {view.stage === 'lobby' && <Lobby view={view} code={code} />}
+      {view.stage === 'lobby' && <Lobby view={view} code={code} invites={invites} />}
       {view.stage === 'playing' && (
         <Board
           view={view}
@@ -162,33 +169,95 @@ export function Table({ code }: { code: string }) {
   );
 }
 
-function Waiting({ code, status }: { code: string; status: string }) {
+/** An empty seat slot: its QR if one was given, else the plain waiting dot. */
+export function SeatSlot({
+  seat,
+  name,
+  invites,
+}: {
+  seat: Seat;
+  name?: string;
+  invites?: SeatInvite[];
+}) {
+  if (name) {
+    return (
+      <>
+        <span className="lobby__dot" aria-hidden="true" />
+        {name}
+      </>
+    );
+  }
+  const invite = invites?.find((i) => i.seat === seat);
+  if (invite) return <JoinCode url={invite.url} label={`Scan to join as seat ${seat + 1}`} />;
+  return (
+    <>
+      <span className="lobby__dot" aria-hidden="true" />
+      {`Seat ${seat + 1} — waiting`}
+    </>
+  );
+}
+
+function Waiting({
+  code,
+  status,
+  invites,
+}: {
+  code: string;
+  status: string;
+  invites?: SeatInvite[];
+}) {
   return (
     <div className="screen screen--lobby">
       <p className="label">Room code</p>
       <p className="lobby__code">{code}</p>
+      {invites && (
+        <ul className="lobby__seats">
+          {invites.map((invite) => (
+            <li key={invite.seat} className="has-code">
+              <SeatSlot seat={invite.seat} invites={invites} />
+            </li>
+          ))}
+        </ul>
+      )}
       <p className="label">{status === 'open' ? 'Joining…' : 'Connecting…'}</p>
     </div>
   );
 }
 
-function Lobby({ view, code }: { view: TableView; code: string }) {
+function Lobby({
+  view,
+  code,
+  invites,
+}: {
+  view: TableView;
+  code: string;
+  invites?: SeatInvite[];
+}) {
   return (
     <div className="screen screen--lobby">
       <p className="label">Room code</p>
       <p className="lobby__code">{code}</p>
       <ul className="lobby__seats">
-        {view.players.map((player) => (
-          <li key={player.seat} className={player.connected ? 'is-connected' : undefined}>
-            <span className="lobby__dot" aria-hidden="true" />
-            {player.connected ? player.name : `Seat ${player.seat + 1} — waiting`}
-          </li>
-        ))}
+        {view.players.map((player) => {
+          const hasCode = !player.connected && invites?.some((i) => i.seat === player.seat);
+          return (
+            <li
+              key={player.seat}
+              className={player.connected ? 'is-connected' : hasCode ? 'has-code' : undefined}
+            >
+              <SeatSlot
+                seat={player.seat}
+                name={player.connected ? player.name : undefined}
+                invites={invites}
+              />
+            </li>
+          );
+        })}
       </ul>
       <p className="label screen__footnote">
         {view.players.every((p) => p.connected)
           ? 'Both in. Deal from either phone.'
-          : 'Open /play on each phone and enter the code.'}
+          : 'Open /play on each phone and enter the code, or scan the code above.'}
       </p>
     </div>
   );

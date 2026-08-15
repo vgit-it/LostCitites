@@ -16,6 +16,7 @@ import { createLocalStorageRejoinStore } from './session/rejoinStore';
 import { createSessionStore } from './session/session';
 import { createSocketClient } from './session/socket';
 import { SessionProvider } from './session/useSession';
+import { Invite, joinUrl, parseInvite } from './shared/invite';
 import { Table } from './table/Table';
 import { Phone } from './phone/Phone';
 import './styles/tokens.css';
@@ -54,6 +55,20 @@ function tableCode(): string {
   return String(100 + Math.floor(Math.random() * 900));
 }
 
+/** The two links a lobby QR encodes, one per seat, built from this room's code. */
+function invitesFor(code: string): { seat: 0 | 1; url: string }[] {
+  return [0, 1].map((seat) => ({
+    seat: seat as 0 | 1,
+    url: joinUrl(window.location, { code, seat: seat as 0 | 1 }),
+  }));
+}
+
+/** This device's name from a previous game, offered as a join-screen default. */
+function lastName(): string {
+  const stored = rejoin.load();
+  return stored?.role === 'player' ? stored.name ?? '' : '';
+}
+
 function RolePicker() {
   return (
     <div className="screen screen--picker">
@@ -80,12 +95,15 @@ function RolePicker() {
 
 function App() {
   // The code is fixed for the life of the page so a re-render cannot mint a
-  // new room out from under the phones.
+  // new room out from under the phones. The invite is read once for the
+  // same reason — it describes how this page was opened, not its current
+  // location, which a router-free app never changes without a reload anyway.
   const [code] = useState(tableCode);
+  const [invite] = useState<Invite | null>(() => parseInvite(window.location.search));
   const path = window.location.pathname;
 
-  if (path.startsWith('/table')) return <Table code={code} />;
-  if (path.startsWith('/play')) return <Phone />;
+  if (path.startsWith('/table')) return <Table code={code} invites={invitesFor(code)} />;
+  if (path.startsWith('/play')) return <Phone invite={invite} lastName={lastName()} />;
   return <RolePicker />;
 }
 
