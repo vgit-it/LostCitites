@@ -315,12 +315,13 @@ export function SeatPlate({
 }
 
 /**
- * One band of the name row: the round counter's gutter cell (top only, and
- * never rotated — it belongs to the table, not to a player) plus the plate,
- * spanning the five colour tracks so it lines up with nothing in particular
- * and reads centred above/below the board.
+ * One band of the name row: the round counter's gutter cell — read by both
+ * players, so it renders in both name rows now rather than the top one
+ * alone, rotated in the top one same as the plate beside it — plus the
+ * plate, spanning the five colour tracks so it lines up with nothing in
+ * particular and reads centred above/below the board.
  */
-function NameRow({
+export function NameRow({
   player,
   active,
   phase,
@@ -331,16 +332,13 @@ function NameRow({
   active: boolean;
   phase: TableView['phase'];
   flipped: boolean;
-  /** Only the top row carries this — one counter for the whole table. */
-  round?: number;
+  round: number;
 }) {
   return (
     <div className={`name-row name-row--${flipped ? 'top' : 'bottom'}`}>
-      {round !== undefined && (
-        <span className="round-chip label" style={{ gridColumn: 1 }}>
-          Round {round}/3
-        </span>
-      )}
+      <span className="round-chip label" style={{ gridColumn: 1 }}>
+        Round {round}/3
+      </span>
       <SeatPlate player={player} active={active} phase={phase} flipped={flipped} />
     </div>
   );
@@ -462,7 +460,13 @@ function Board({
         ))}
       </section>
 
-      <NameRow player={seat0} active={view.turn === 0} phase={view.phase} flipped={isFlipped(0)} />
+      <NameRow
+        player={seat0}
+        active={view.turn === 0}
+        phase={view.phase}
+        flipped={isFlipped(0)}
+        round={view.round}
+      />
     </div>
   );
 }

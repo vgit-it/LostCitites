@@ -72,6 +72,14 @@ export function Card({
       <span className="card__index" aria-hidden="true">
         {card.value === 'wager' ? '✦' : card.value}
       </span>
+      {/* A second index at the opposite corner, for the one place a card is
+          read from both sides at once: the shared discard row, which faces
+          neither seat. Hidden everywhere else — a hand and a column both
+          already face their one reader, and a second copy there would only
+          be visual noise. */}
+      <span className="card__index card__index--far" aria-hidden="true">
+        {card.value === 'wager' ? '✦' : card.value}
+      </span>
       <span className="card__value">{card.value === 'wager' ? '✦' : card.value}</span>
     </>
   );

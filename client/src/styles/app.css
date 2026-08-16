@@ -73,6 +73,15 @@
   letter-spacing: -0.02em;
 }
 
+/* The second index a card carries for the one place it is read from both
+   ends of the table at once: the shared discard row, which faces neither
+   seat (see .discard-row below). Off everywhere else, same as .card__index
+   itself — a hand and a column both already face their one reader, so a
+   second copy there would just be noise. */
+.card__index--far {
+  display: none;
+}
+
 /* Scoped to <button>: a non-interactive card is a <div> now (Card.tsx), and
    :not(:disabled) matches any element that does not support the disabled
    attribute at all — a plain div included — so an unscoped rule here would
@@ -212,6 +221,12 @@ button.card:not(:disabled):active {
 .round-chip {
   grid-column: 1;
   justify-self: center;
+}
+
+/* Read by both players — it renders in both name rows, turned to face the
+   one at the far end same as their own plate beside it. */
+.name-row--top .round-chip {
+  transform: rotate(180deg);
 }
 
 .seat-plate {
@@ -521,8 +536,57 @@ button.card:not(:disabled):active {
   background: var(--paper);
 }
 
+/* No text, so it needs no rotation and reads identically from both seats:
+   whoever is to move gets a solid accent on the edge of the discard row
+   nearest their own side. An inset box-shadow, not a wider border — turning
+   every turn would otherwise change .discard-row's own box height by the
+   difference and shift the six-track grid it shares with both sides by that
+   much, breaking the pile alignment this band was built to hold exactly.
+   The turn text on the active player's own plate is still the detailed
+   answer; this is the one a glance across the table also catches. */
+.discard-row--turn-top {
+  box-shadow: inset 0 3px 0 var(--ink);
+}
+
+.discard-row--turn-bottom {
+  box-shadow: inset 0 -3px 0 var(--ink);
+}
+
 .discard-row .card {
   --card-width: var(--pile-w);
+}
+
+/* A discard pile is shared, read from both ends of the table at once, so it
+   gets the same treatment as a column: the big centred numeral drops, and
+   the corner index carries the value — twice, once per corner, the second
+   one turned to face the far player the way a real two-headed card would.
+   Matches the column's own trade of legibility for a readable-at-a-glance
+   corner (columnMetrics.ts), enlarged the same way. */
+.discard-row .card__index,
+.discard-row .card__index--far {
+  display: block;
+  font-size: calc(var(--card-width) * 0.5);
+}
+
+.discard-row .card__index--far {
+  top: auto;
+  left: auto;
+  bottom: 0.2rem;
+  right: 0.32rem;
+  transform: rotate(180deg);
+}
+
+.discard-row .card__value {
+  display: none;
+}
+
+/* The two indices claim the top-left and bottom-right corners; the mark
+   moves to bottom-left, same trade .column makes for the same reason —
+   left in the base top-left corner it would sit directly under the near
+   index. */
+.discard-row .card__mark {
+  top: auto;
+  bottom: 0.2rem;
 }
 
 /* ---- the one gesture the table takes ---- */
@@ -596,9 +660,15 @@ button.card:not(:disabled):active {
   opacity: 0.7;
 }
 
+/* Two chips, one per end of the deck's top card — the deck is shared, same
+   as the discard piles, so both seats read it without leaning across the
+   table. .deck's own place-items: center is what the un-suffixed chip
+   used to rely on for a single centred count; each chip now overrides it
+   to its own end instead. */
 .deck__count {
   grid-area: 1 / 1;
   z-index: 1;
+  align-self: end;
   padding: 0.08em 0.3em;
   border-radius: var(--radius);
   font-family: var(--font-numeral);
@@ -609,6 +679,11 @@ button.card:not(:disabled):active {
      but not against the striped ink-coloured back this now sits on. */
   background: var(--paper);
   color: var(--ink);
+}
+
+.deck__count--far {
+  align-self: start;
+  transform: rotate(180deg);
 }
 
 .deck--low .deck__count {

@@ -36,7 +36,7 @@ import { columnExtent, columnMetrics, sideMetrics } from './table/columnMetrics'
 import { planFlight } from './table/flights';
 import { JoinCode } from './table/JoinCode';
 import { qrMatrix, qrPath } from './table/qrCode';
-import { Lane, SeatInvite, SeatPlate, SeatSlot } from './table/Table';
+import { Lane, NameRow, SeatInvite, SeatPlate, SeatSlot } from './table/Table';
 import { JoinScreen } from './phone/JoinScreen';
 import { Phone } from './phone/Phone';
 import { createInMemoryRejoinStore } from './session/rejoinStore';
@@ -111,6 +111,17 @@ describe('Card', () => {
     const { container } = render(<Card card={num('blue', 7)} />);
     expect(container.querySelector('.card__index')?.textContent).toBe('7');
     expect(container.querySelector('.card__value')?.textContent).toBe('7');
+  });
+
+  it('carries a second index at the opposite corner, for the shared discard row', () => {
+    // Off everywhere else (CSS); on the DOM always, same as the near index —
+    // this is the one place a card is read from both ends of the table at
+    // once, with nobody's own reading direction to default to.
+    const { container } = render(<Card card={num('blue', 7)} />);
+    const far = container.querySelector('.card__index--far');
+    expect(far?.textContent).toBe('7');
+    expect(far?.getAttribute('aria-hidden')).toBe('true');
+    expect(far).not.toBe(container.querySelector('.card__index'));
   });
 
   it('announces toggle state only when it is actually selectable', () => {
@@ -262,6 +273,24 @@ describe('a seat plate: the player at the edge of their own side', () => {
     );
     expect(container.querySelector('.seat-plate__offline')).toBeTruthy();
   });
+
+  it('carries the round counter, read by both — only the far one is flipped', () => {
+    // Used to render only in the top row (Table.tsx), which the round
+    // belonged to the table, not a player — but that meant only seat 0 ever
+    // read it right-side up. Both rows carry it now.
+    const { container: near } = render(
+      <NameRow player={seatPlayer()} active={false} phase="place" flipped={false} round={2} />,
+    );
+    const nearChip = near.querySelector('.round-chip');
+    expect(nearChip?.textContent).toBe('Round 2/3');
+
+    const { container: far } = render(
+      <NameRow player={seatPlayer()} active={false} phase="place" flipped round={2} />,
+    );
+    expect(far.querySelector('.round-chip')?.textContent).toBe('Round 2/3');
+    expect(far.querySelector('.name-row')?.className).toContain('name-row--top');
+    expect(near.querySelector('.name-row')?.className).toContain('name-row--bottom');
+  });
 });
 
 describe('deck urgency', () => {
@@ -274,9 +303,12 @@ describe('deck urgency', () => {
     expect(deckUrgency(0)).toBe('critical');
   });
 
-  it('always shows the draw pile count', () => {
+  it('always shows the draw pile count, once per end', () => {
+    // Two chips, not one: the deck sits between both seats, same as a
+    // discard pile, so each needs its own copy rather than leaning across
+    // the table to read the other's.
     render(<DiscardRow deckCount={44} discardTops={noTops} />);
-    expect(screen.getByText('44')).toBeTruthy();
+    expect(screen.getAllByText('44')).toHaveLength(2);
   });
 });
 
@@ -1336,6 +1368,27 @@ describe('the discard row', () => {
     reach(container.querySelector('[data-pile="green"]') as HTMLElement, 120);
     expect(onDraw).not.toHaveBeenCalled();
     expect(container.querySelector('.discard-row')?.className).not.toContain('is-armed');
+  });
+
+  it('marks whose turn it is on its own edge, every turn — not just while armed', () => {
+    // The only other "whose turn" cue is on the active player's own name
+    // plate, at the far edge of their own side — this is the one a glance
+    // across the table also catches, and it has to work outside a draw
+    // phase too, or it would only ever show for half of each player's turn.
+    const { container: seat0Turn } = render(
+      <DiscardRow deckCount={40} discardTops={tops} activeSeat={0} />,
+    );
+    expect(seat0Turn.querySelector('.discard-row')?.className).toContain(
+      'discard-row--turn-bottom',
+    );
+
+    const { container: seat1Turn } = render(
+      <DiscardRow deckCount={40} discardTops={tops} activeSeat={1} />,
+    );
+    expect(seat1Turn.querySelector('.discard-row')?.className).toContain('discard-row--turn-top');
+
+    const { container: noTurn } = render(<DiscardRow deckCount={40} discardTops={tops} />);
+    expect(noTurn.querySelector('.discard-row')?.className).not.toContain('discard-row--turn');
   });
 
   it('draws the deck as a stack of backs, and keeps the anchor addressable', () => {
