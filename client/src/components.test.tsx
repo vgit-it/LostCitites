@@ -331,12 +331,12 @@ describe('deck urgency', () => {
     expect(deckUrgency(0)).toBe('critical');
   });
 
-  it('always shows the draw pile count, once per end', () => {
-    // Two chips, not one: the deck sits between both seats, same as a
-    // discard pile, so each needs its own copy rather than leaning across
-    // the table to read the other's.
+  it('shows the draw pile count once, turned sideways for both seats', () => {
+    // One chip, not two: the deck sits between both seats same as a
+    // discard pile, but a chip that faced one of them would read
+    // upside-down to the other — sideways costs both the same head-tilt.
     render(<DiscardRow deckCount={44} discardTops={noTops} />);
-    expect(screen.getAllByText('44')).toHaveLength(2);
+    expect(screen.getAllByText('44')).toHaveLength(1);
   });
 });
 

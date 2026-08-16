@@ -168,13 +168,11 @@ export function DiscardRow({
           />
         ))}
         {deckCount > 0 && <div className="card card--back" aria-hidden="true" />}
-        {/* Two chips, same count, one at each end — the deck sits between
-            both seats same as the discard piles, so both need to read it
-            without leaning across the table. */}
+        {/* One chip, turned sideways rather than upright toward either end —
+            the deck sits between both seats same as the discard piles, and
+            a chip that faced one of them would read upside-down to the
+            other. Rotated 90deg it is equally a head-tilt for both. */}
         <span className="deck__count" aria-hidden="true">
-          {deckCount}
-        </span>
-        <span className="deck__count deck__count--far" aria-hidden="true">
           {deckCount}
         </span>
         <span className="sr-only">{deckCount} cards left in the deck</span>
