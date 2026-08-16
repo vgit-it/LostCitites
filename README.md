@@ -97,8 +97,8 @@ client/src/
                  gesture, throw, columnRead, handRows
   shared/        Card (the one card visual, used by both), CardFlight,
                  flightPath, carry, invite, seating
-  platform/      vibrate, wakeLock, orientation, motion — the only files
-                 touching navigator / screen
+  platform/      vibrate, wakeLock, orientation, motion, sound — the only
+                 files touching navigator / screen / Audio
 ```
 
 Two rules hold the structure together:
