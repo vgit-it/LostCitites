@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Card as CardModel, Colour, PlayerView, PublicPlayerView, TableView } from '@shared/types';
-import { Card } from './shared/Card';
+import { Card, CardSlot, COLOUR_MARK } from './shared/Card';
 import { Column } from './table/Column';
 import { profilePoints } from './table/ElevationProfile';
 import { DiscardRow, deckUrgency } from './table/DiscardRow';
@@ -136,22 +136,20 @@ describe('Card', () => {
   });
 
   it('carries a corner index alongside the big numeral', () => {
-    // Both are in the DOM on every card; CSS shows the index only inside a
-    // fan. Note this means a numeral matches twice — use getAllByText.
+    // Both are in the DOM on every card; CSS shows the index only on a
+    // buried column card. Note this means a numeral matches twice — use
+    // getAllByText.
     const { container } = render(<Card card={num('blue', 7)} />);
     expect(container.querySelector('.card__index')?.textContent).toBe('7');
     expect(container.querySelector('.card__value')?.textContent).toBe('7');
   });
 
-  it('carries a second index at the opposite corner, for the shared discard row', () => {
-    // Off everywhere else (CSS); on the DOM always, same as the near index —
-    // this is the one place a card is read from both ends of the table at
-    // once, with nobody's own reading direction to default to.
-    const { container } = render(<Card card={num('blue', 7)} />);
-    const far = container.querySelector('.card__index--far');
-    expect(far?.textContent).toBe('7');
-    expect(far?.getAttribute('aria-hidden')).toBe('true');
-    expect(far).not.toBe(container.querySelector('.card__index'));
+  it('leaves the colour mark to CardSlot, now that art carries the non-colour cue', () => {
+    const { container: card } = render(<Card card={num('blue', 7)} />);
+    expect(card.querySelector('.card__mark')).toBeNull();
+
+    const { container: slot } = render(<CardSlot colour="blue" />);
+    expect(slot.querySelector('.card__mark')?.textContent).toBe(COLOUR_MARK.blue);
   });
 
   it('announces toggle state only when it is actually selectable', () => {
