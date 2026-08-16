@@ -111,10 +111,10 @@
   font-size: calc(var(--card-width) * 0.5);
 }
 
-/* Non-colour channel: a per-colour mark in the corner. Unlike .card__value
-   this sits over the tinted swoosh band, not the art's pale centre third —
-   the inherited --paper stays exactly as good a fit against the overlay's
-   solid colour disc as it was against the old flat colour fill. */
+/* Non-colour channel: a per-colour mark in the corner. Card.tsx no longer
+   renders this — every populated card now carries its own illustrated
+   scene, which is the non-colour cue. CardSlot is the one thing left that
+   still needs it: an empty slot has no art, only a flat colour fill. */
 .card__mark {
   position: absolute;
   top: 0.25rem;
@@ -123,9 +123,10 @@
   opacity: 0.75;
 }
 
-/* The corner index exists only for the fanned hand, where neighbours bury
-   the centred numeral on every card but the last. Everywhere else the big
-   numeral is the whole point, and a second one would just be noise. */
+/* The corner index exists only for a buried column card, where the one
+   played after it covers everything but a sliver too thin for the centred
+   numeral (columnMetrics.ts). Everywhere else the big numeral is the whole
+   point, and a second one would just be noise. */
 .card__index {
   display: none;
   position: absolute;
@@ -136,15 +137,6 @@
   font-weight: 700;
   line-height: 1;
   letter-spacing: -0.02em;
-}
-
-/* The second index a card carries for the one place it is read from both
-   ends of the table at once: the shared discard row, which faces neither
-   seat (see .discard-row below). Off everywhere else, same as .card__index
-   itself — a hand and a column both already face their one reader, so a
-   second copy there would just be noise. */
-.card__index--far {
-  display: none;
 }
 
 /* Scoped to <button>: a non-interactive card is a <div> now (Card.tsx), and
@@ -503,31 +495,27 @@ button.card:not(:disabled):active {
 
 /* In a staircase the exposed part of a buried card is its edge nearest the
    card behind it — screen-left for the bottom lane, screen-right for the
-   mirrored top one — so the corner index carries the value and the big
-   centred numeral is dropped: overlapped, it is bisected by the next card
-   and reads as a rendering fault rather than a number. The fan makes
-   exactly this trade for exactly this reason. The mark moves out from under
-   the index.
+   mirrored top one — so a buried card's corner index carries the value and
+   its big centred numeral is dropped: overlapped, it would be bisected by
+   the next card and read as a rendering fault rather than a number. The
+   last card in the stack — DOM order matches play order, so this is always
+   the most recently played, fully exposed one — needs no such trade and
+   renders exactly like a hand card: the base rules apply untouched.
 
-   Both live at the card's own local top-left and need no lane-specific
-   override: a top-lane card is turned 180° as a whole
+   The index lives at the card's own local top-left and needs no
+   lane-specific override: a top-lane card is turned 180° as a whole
    (.lane--top .column__card .card, below), which carries this same corner
    to the screen-space spot the mirrored stagger exposes — and, seen from
    the far player's own side of the table, back to their top-left again. */
-.column .card__index {
+.column__card:not(:last-child) .card__index {
   display: block;
   font-size: calc(var(--card-width) * 0.44);
   top: 0.1em;
   left: 0.16em;
 }
 
-.column .card__value {
+.column__card:not(:last-child) .card__value {
   display: none;
-}
-
-.column .card__mark {
-  top: auto;
-  bottom: 0.2rem;
 }
 
 /* An expedition card faces its owner. Scoped to the card leaf alone, never
@@ -617,38 +605,13 @@ button.card:not(:disabled):active {
   --card-width: var(--pile-w);
 }
 
-/* A discard pile is shared, read from both ends of the table at once, so it
-   gets the same treatment as a column: the big centred numeral drops, and
-   the corner index carries the value — twice, once per corner, the second
-   one turned to face the far player the way a real two-headed card would.
-   Matches the column's own trade of legibility for a readable-at-a-glance
-   corner (columnMetrics.ts), enlarged the same way. */
-.discard-row .card__index,
-.discard-row .card__index--far {
-  display: block;
-  font-size: calc(var(--card-width) * 0.5);
-}
-
-.discard-row .card__index--far {
-  top: auto;
-  left: auto;
-  bottom: 0.2rem;
-  right: 0.32rem;
-  transform: rotate(180deg);
-}
-
-.discard-row .card__value {
-  display: none;
-}
-
-/* The two indices claim the top-left and bottom-right corners; the mark
-   moves to bottom-left, same trade .column makes for the same reason —
-   left in the base top-left corner it would sit directly under the near
-   index. */
-.discard-row .card__mark {
-  top: auto;
-  bottom: 0.2rem;
-}
+/* A discard pile is shared, read from both ends of the table at once — but,
+   like a hand card, only ever shows its one top card, with no sliver
+   problem to solve. It renders with the same base rules as a hand card:
+   the big centred numeral, picked to read right-side up from one seat
+   rather than split into two smaller corner copies. The far seat reads a
+   discarded card upside-down, the same way it would glance at the near
+   player's own hand. */
 
 /* ---- the one gesture the table takes ---- */
 

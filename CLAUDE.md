@@ -179,15 +179,26 @@ aligned board, §8 for the portrait phone and the carry-and-throw model.
   `TableEvent` into a journey, using the view as it stood *before* the cue —
   the server emits its event and then broadcasts, so a card taken off a
   discard pile only still exists in the previous view.
-- **Owned things face their owner; shared things read both ways.** The
-  table lies between two players reading it from opposite ends. Anything
-  that belongs to one of them — their name, their score, their expedition
-  cards — is rotated 180° to face them if they sit at the far edge
-  (`shared/seating.ts` is the one place `Seat` maps to that edge). Anything
-  that belongs to neither — the deck, the discard piles, the round counter —
-  carries its value twice instead, once per reading direction, rather than
-  picking a side. `Column.tsx`'s stagger and `Card.tsx`'s second corner
-  index are the two shapes that trade-off takes.
+- **Owned things face their owner; shared things read both ways — mostly.**
+  The table lies between two players reading it from opposite ends.
+  Anything that belongs to one of them — their name, their score, their
+  expedition cards — is rotated 180° to face them if they sit at the far
+  edge (`shared/seating.ts` is the one place `Seat` maps to that edge).
+  Anything that belongs to neither — the deck's remaining-card count, the
+  round counter — carries its value twice instead, once per reading
+  direction, rather than picking a side; the deck's paired
+  `deck__count`/`deck__count--far` chips are the shape that trade-off
+  takes. The discard piles are the one shared thing that picks a side
+  anyway: each shows a single upright card face, styled identically to a
+  hand card, so the far seat reads a discarded card upside-down rather than
+  the table carrying two smaller copies of it.
+- **A card looks the same everywhere it's readable at full size.** Hand
+  cards, a column's topmost card, and a discard pile's top card all render
+  with the same big centred numeral (`Card.tsx`'s `card__value`) — no
+  separate table style. Only a column card buried under the one played
+  after it, reduced to a sliver too thin for that numeral
+  (`columnMetrics.ts`), falls back to the small corner index instead
+  (`.column__card:not(:last-child)` in `app.css`).
 
 ## Known limitations
 

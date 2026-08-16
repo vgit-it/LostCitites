@@ -67,24 +67,16 @@ export function Card({
       {/* The illustrated background plate and the suit-tinted Card_Overlay —
           both picked by `card--${colour}` / `card--wager` in app.css. Behind
           the text spans below by document order alone, the same trick this
-          file already relies on for card__mark/card__index. */}
+          file already relies on for card__index. No card__mark here any
+          more: the illustration itself is now the non-colour cue, so the
+          glyph stayed only on CardSlot (no art of its own to carry it). */}
       <span className="card__art" aria-hidden="true" />
       <span className="card__overlay" aria-hidden="true" />
-      <span className="card__mark" aria-hidden="true">
-        {COLOUR_MARK[card.colour]}
-      </span>
-      {/* A corner index, the way a real card carries one. Hidden until a
-          fanned hand overlaps the faces and the centred numeral is buried
-          on every card but the last. */}
+      {/* A corner index, the way a real card carries one. Hidden by default —
+          app.css shows it only where the centred numeral below can't
+          survive: a column card buried under the one played after it,
+          reduced to a sliver too thin for anything else (columnMetrics.ts). */}
       <span className="card__index" aria-hidden="true">
-        {card.value === 'wager' ? '✦' : card.value}
-      </span>
-      {/* A second index at the opposite corner, for the one place a card is
-          read from both sides at once: the shared discard row, which faces
-          neither seat. Hidden everywhere else — a hand and a column both
-          already face their one reader, and a second copy there would only
-          be visual noise. */}
-      <span className="card__index card__index--far" aria-hidden="true">
         {card.value === 'wager' ? '✦' : card.value}
       </span>
       <span className="card__value">{card.value === 'wager' ? '✦' : card.value}</span>
