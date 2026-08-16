@@ -59,16 +59,18 @@ import {
   unlockSounds,
 } from './platform/sound';
 
-// Table.tsx calls these two directly on every 'placed' / 'drew' cue. Spying
-// through the real implementation (rather than a bare vi.fn) keeps the
-// 'sound effects' tests below exercising actual behaviour, while still
-// letting the table-wiring test assert on call counts.
+// Table.tsx calls these directly: the first two on every 'placed' / 'drew'
+// cue, the third on the table's own first tap. Spying through the real
+// implementation (rather than a bare vi.fn) keeps the 'sound effects' tests
+// below exercising actual behaviour, while still letting the table-wiring
+// tests assert on call counts.
 vi.mock('./platform/sound', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./platform/sound')>();
   return {
     ...actual,
     playCardPlaced: vi.fn(actual.playCardPlaced),
     playCardDrawn: vi.fn(actual.playCardDrawn),
+    unlockSounds: vi.fn(actual.unlockSounds),
   };
 });
 
@@ -2058,6 +2060,7 @@ describe('table sound cues', () => {
   beforeEach(() => {
     vi.mocked(playCardPlaced).mockClear();
     vi.mocked(playCardDrawn).mockClear();
+    vi.mocked(unlockSounds).mockClear();
   });
 
   function stubTableView(): TableView {
@@ -2138,6 +2141,32 @@ describe('table sound cues', () => {
 
     expect(playCardPlaced).not.toHaveBeenCalled();
     expect(playCardDrawn).not.toHaveBeenCalled();
+  });
+
+  // The table is otherwise tap-free (see drawGesture.ts) — this is the one
+  // deliberate exception, and only until it's served its purpose once.
+  it('invites the first tap to unlock sound, both ways up, then drops it for good', () => {
+    const socket = new FakeSocket();
+    const store = createSessionStore(socket, createInMemoryRejoinStore());
+    const { container } = render(
+      <SessionProvider store={store}>
+        <Table code="ABCD" />
+      </SessionProvider>,
+    );
+    act(() => socket.deliver({ t: 'state', view: stubTableView() }));
+
+    expect(screen.getAllByText('🔈 Tap to enable sound')).toHaveLength(2);
+    expect(unlockSounds).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(container.querySelector('.table') as HTMLElement);
+
+    expect(unlockSounds).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('🔈 Tap to enable sound')).toBeNull();
+
+    // A second tap doesn't bring it back or re-unlock.
+    fireEvent.pointerDown(container.querySelector('.table') as HTMLElement);
+    expect(unlockSounds).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText('🔈 Tap to enable sound')).toBeNull();
   });
 });
 
