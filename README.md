@@ -96,7 +96,7 @@ client/src/
   phone/         Phone, JoinScreen, Hand, FlickZones, HandActions
                  gesture, throw, columnRead, handRows
   shared/        Card (the one card visual, used by both), CardFlight,
-                 flightPath, carry, invite
+                 flightPath, carry, invite, seating
   platform/      vibrate, wakeLock, orientation, motion — the only files
                  touching navigator / screen
 ```

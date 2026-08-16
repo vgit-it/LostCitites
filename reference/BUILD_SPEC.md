@@ -327,30 +327,35 @@ Routes:
 
 ## 7. Table client
 
-Landscape, tablet, viewed from ~1 metre. **Readability at distance is the primary constraint.**
+Landscape, tablet, viewed from ~1 metre, laid flat between two players who
+sit **facing each other** — seat 0 at the bottom edge of the screen, seat 1
+at the top, reading everything upside down relative to seat 0.
+**Readability at distance is the primary constraint, for both of them.**
 
 ### Layout
 
 One column template runs top to bottom: a fixed gutter for the deck, then
 five tracks, one per colour — so a column, its own colour's discard pile,
-and the live score under it always share an x position.
+and the live score beside it always share an x position.
 
 ```
 ┌───────────────────────────────────────────────────────┐
 │ ROUND 2/3          ● Aditi  −11  Placing a card · 6…   │  name row (rotated
-├───────────────────────────────────────────────────────┤   to face Aditi)
-│        [Y]   [B]   [W]   [G]   [R]  ← opponent columns │
-│         9     –     7     –     4      (grow upward)   │
-│         6           5           2                      │
-│        −8    –    12    –    −3    ← live score, same  │
-├───────────────────────────────────────────────────────┤    rotation
-│  ┌──┐   ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐                    │
-│  │44│   │ Y│  │ B│  │ W│  │ G│  │ R│   ← deck + discards│
-│  └──┘   └──┘  └──┘  └──┘  └──┘  └──┘                    │
+├───────────────────────────────────────────────────────┤  to face Aditi —
+│        −8    –    12    –    −3    ← Aditi's own score │  round counter
+│        [Y]   [B]   [W]   [G]   [R]  ← her columns,     │  too)
+│         6           5           2      cards facing    │
+│         9     –     7     –     4      her, newest     │
+│                                         nearest her     │
+┝━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┥  accent border on
+│  ┌──┐   ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐                    │  whoever's turn
+│  │44│   │3Y│  │4B│  │5W│  │2G│  │4R│   ← deck + discards,│  it is
+│  │44│   │3Y│  │4B│  │5W│  │2G│  │4R│      value at both │
+│  └──┘   └──┘  └──┘  └──┘  └──┘  └──┘      corners       │
 ├───────────────────────────────────────────────────────┤
-│        +5    –    16    –     8    ← live score        │
-│        [Y]   [B]   [W]   [G]   [R]  ← your columns      │
-│         7           8     9            (grow downward)  │
+│         7           8     9            cards facing    │
+│        [Y]   [B]   [W]   [G]   [R]  ← your columns,     │
+│        +5    –    16    –     8    ← your own score    │
 ├───────────────────────────────────────────────────────┤
 │ ● Paul  42       Placing a card — 8 cards in hand       │  name row
 └───────────────────────────────────────────────────────┘
@@ -360,32 +365,48 @@ and the live score under it always share an x position.
 
 - **Card numerals minimum 32px** at tablet size. Colour alone is insufficient; every card shows its number.
 - **Columns overlap vertically** with ~35% of each card visible — enough to read the number.
-- **Draw pile count always visible.** Turns amber below 10, red below 5. The deck itself renders as a short stack of card backs with the count as a chip over it, so it thins visibly as the round closes.
-- **Turn indicator unmissable.** Whose turn, and which phase (`placing` vs `drawing`). Lives on the active player's own name plate, at the edge of their side of the table, next to their hand count — not a subtle glow.
-- **Live score**, per player at their own name plate and per column beside its expedition, both recomputed each broadcast.
-- **Read by the player it belongs to.** The far player's name, score, and column scores are rotated 180° to face them, since they are looking at the table from the opposite end. The cards themselves are never rotated — both players read every numeral upright.
-- **One gesture, and no taps.** The table is read-only except for the draw: during a draw phase the player to move presses a legal pile and pulls it toward their own edge of the table, and the card leaves for their phone. Nothing responds to a tap, which is what the original "no input" rule was protecting — an elbow does not pull toward a seat, and the other player's stray swipe travels the wrong way and is refused. Implemented in `client/src/table/drawGesture.ts`; the legal piles arrive as `TableView.legalDrawSources`, so the table does no rules work of its own.
-- **Cards arrive and leave.** A placed card flies in over its own player's edge and lands on its column or discard pile; a drawn card leaves the pile toward the player taking it. Cosmetic, driven by `TableEvent`; the next `state` is still the source of truth.
+- **Draw pile count always visible.** Turns amber below 10, red below 5. The deck itself renders as a short stack of card backs, with the count as a chip at each end of the top card — one per seat — so it thins visibly as the round closes and reads from either side.
+- **Turn indicator unmissable.** Whose turn, and which phase (`placing` vs `drawing`), in text on the active player's own name plate, next to their hand count. A second, wordless cue — an accent on the edge of the discard row nearest whoever is to move — needs no rotation and reads identically from both seats, since it carries no text.
+- **Live score**, per player at their own name plate and per column beside its expedition, both recomputed each broadcast, sitting at each player's own outer edge rather than against the shared discard band between them.
+- **Read by the player it belongs to.** A column of expedition cards faces its own owner — mirrored horizontally as well as rotated, so the staircase steps toward each player's own reading direction — while the deck and the five discard piles, belonging to neither seat, carry their value at two opposite corners instead, the way a two-headed card would. Everything a single player owns (their name, their score, their cards) is rotated 180° to face them if they sit at the far edge; everything shared is doubled instead.
+- **One gesture, and no taps.** The table is read-only except for the draw: during a draw phase the player to move presses a legal pile and pulls it toward their own edge of the table, and the card leaves for their phone. Nothing responds to a tap, which is what the original "no input" rule was protecting — an elbow does not pull toward a seat, and the other player's stray swipe travels the wrong way and is refused *by direction*. (Refusing it by which physical side the reach began on — not just which way it moved — is a known gap; see "Known limitations.") Implemented in `client/src/table/drawGesture.ts`; the legal piles arrive as `TableView.legalDrawSources`, so the table does no rules work of its own.
+- **Cards arrive and leave.** A placed card flies in over its own player's edge and lands on its column or discard pile, already turned to face its owner if theirs is the rotated side; a drawn card leaves the pile toward the player taking it. Cosmetic, driven by `TableEvent`; the next `state` is still the source of truth.
 - **Keep screen awake.** Wake Lock API, with a fallback of a looping invisible video element if running over plain HTTP.
+
+Not addressed here: the numeral-size and overlap targets above are the
+staircase's deliberate trade against fitting a deep expedition into a fixed
+band (`client/src/table/columnMetrics.ts`), unchanged by any of this —
+re-tuning them would be its own pass, not a side effect of who reads what
+from where.
 
 ### Screens
 
 | Stage | Display |
 |---|---|
-| `lobby` | Huge 3-digit code; each open seat also shows a QR for that seat, swapped for the player's name once they connect |
+| `lobby` | Huge room code, said twice, once per edge, one copy rotated. Each open seat shows a QR for that seat at its own edge — rotated for seat 1 — with a visible label next to it (not only an SVG title, which nothing renders on screen), swapped for the player's name once they connect |
 | `playing` | Main board above |
-| `roundEnd` | Per-colour score breakdown, both players side by side |
-| `matchEnd` | Three-round table, winner announcement |
+| `roundEnd` | Per-colour score breakdown, stacked rather than side by side — each player's own breakdown faces them, seat 1's rotated — with the title and footnote in a slim band between the two, also said twice |
+| `matchEnd` | Three-round table and winner announcement, rendered twice toward the screen's own edges, one copy rotated |
 
 ### Round-end breakdown
 
-Show the arithmetic, not just totals. People want to see why they lost.
+Show the arithmetic, not just totals. People want to see why they lost —
+whichever side of the table they're sitting on.
 
 ```
 BLUE     2 + 5 + 9 = 16   − 20 = −4    ×2 (1 wager)  = −8
 GREEN    4+6+7+8+10 = 35  − 20 = 15    ×1            = 15
 WHITE    —                                            = 0
 ```
+
+### Known limitations
+
+- A reach is only checked by *direction* (toward vs. away from the seat to
+  move), not by which physical side of the tablet it started on. Reaching
+  across the table and pulling toward the far edge on your opponent's turn
+  currently succeeds, provided the direction matches. Deliberately out of
+  scope for this pass — `drawGesture.ts`'s `Reach` already carries the
+  pointer's starting position, so binding it is a small, separate change.
 
 ---
 

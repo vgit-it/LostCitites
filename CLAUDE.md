@@ -63,6 +63,7 @@ client/src/
   shared/        Card.tsx (the one card visual, used by both), CardFlight,
                  flightPath, carry — the arithmetic of a card in the air
                  invite — the join URL, written by the tablet and read by the phone
+                 seating — the one place a seat maps to the table's own top/bottom edge
   platform/      vibrate, wakeLock, orientation, motion — the only files
                  touching `navigator` / `screen`
   demo/          the server, running in the browser (see below)
@@ -178,6 +179,15 @@ aligned board, §8 for the portrait phone and the carry-and-throw model.
   `TableEvent` into a journey, using the view as it stood *before* the cue —
   the server emits its event and then broadcasts, so a card taken off a
   discard pile only still exists in the previous view.
+- **Owned things face their owner; shared things read both ways.** The
+  table lies between two players reading it from opposite ends. Anything
+  that belongs to one of them — their name, their score, their expedition
+  cards — is rotated 180° to face them if they sit at the far edge
+  (`shared/seating.ts` is the one place `Seat` maps to that edge). Anything
+  that belongs to neither — the deck, the discard piles, the round counter —
+  carries its value twice instead, once per reading direction, rather than
+  picking a side. `Column.tsx`'s stagger and `Card.tsx`'s second corner
+  index are the two shapes that trade-off takes.
 
 ## Known limitations
 
