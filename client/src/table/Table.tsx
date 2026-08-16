@@ -149,7 +149,11 @@ export function Table({ code, invites }: { code: string; invites?: SeatInvite[] 
 
   return (
     <div className="table">
-      {status !== 'open' && <div className="reconnect-bar label">Reconnecting…</div>}
+      {/* Read from both ends, same as everything else on this screen — the
+          top copy is rotated to face seat 1. */}
+      {status !== 'open' && (
+        <div className="reconnect-bar reconnect-bar--top label">Reconnecting…</div>
+      )}
       {view.stage === 'lobby' && <Lobby view={view} code={code} invites={invites} />}
       {view.stage === 'playing' && (
         <Board
@@ -162,6 +166,9 @@ export function Table({ code, invites }: { code: string; invites?: SeatInvite[] 
         <RoundEnd round={view.round} players={view.players} ready={view.readyForNextRound} />
       )}
       {view.stage === 'matchEnd' && <MatchEnd players={view.players} />}
+      {status !== 'open' && (
+        <div className="reconnect-bar reconnect-bar--bottom label">Reconnecting…</div>
+      )}
 
       {flight && (
         <CardFlight
@@ -200,11 +207,38 @@ export function SeatSlot({
     );
   }
   const invite = invites?.find((i) => i.seat === seat);
-  if (invite) return <JoinCode url={invite.url} label={`Scan to join as seat ${seat + 1}`} />;
+  if (invite) {
+    return (
+      <>
+        <JoinCode url={invite.url} label={`Scan to join as seat ${seat + 1}`} />
+        {/* The SVG title above is invisible until something reads it aloud —
+            this is the same fact, in text, for the seat itself to point to. */}
+        <p className="label lobby__seat-label">{`Seat ${seat + 1}`}</p>
+      </>
+    );
+  }
   return (
     <>
       <span className="lobby__dot" aria-hidden="true" />
       {`Seat ${seat + 1} — waiting`}
+    </>
+  );
+}
+
+/** Room code, twice, so both seats read it without leaning across the
+ *  table — same trade the round-end title/footnote and the round chip
+ *  both make. */
+function CodeBanners({ code }: { code: string }) {
+  return (
+    <>
+      <div className="lobby__banner lobby__banner--top">
+        <p className="label">Room code</p>
+        <p className="lobby__code">{code}</p>
+      </div>
+      <div className="lobby__banner lobby__banner--bottom">
+        <p className="label">Room code</p>
+        <p className="lobby__code">{code}</p>
+      </div>
     </>
   );
 }
@@ -220,23 +254,21 @@ function Waiting({
 }) {
   return (
     <div className="screen screen--lobby">
-      <p className="label">Room code</p>
-      <p className="lobby__code">{code}</p>
-      {invites && (
-        <ul className="lobby__seats">
-          {invites.map((invite) => (
-            <li key={invite.seat} className="has-code">
-              <SeatSlot seat={invite.seat} invites={invites} />
-            </li>
-          ))}
-        </ul>
-      )}
-      <p className="label">{status === 'open' ? 'Joining…' : 'Connecting…'}</p>
+      <div className="lobby__side lobby__side--top">
+        {invites && <SeatSlot seat={1} invites={invites} />}
+      </div>
+      <div className="lobby__centre">
+        <CodeBanners code={code} />
+        <p className="label">{status === 'open' ? 'Joining…' : 'Connecting…'}</p>
+      </div>
+      <div className="lobby__side lobby__side--bottom">
+        {invites && <SeatSlot seat={0} invites={invites} />}
+      </div>
     </div>
   );
 }
 
-function Lobby({
+export function Lobby({
   view,
   code,
   invites,
@@ -245,32 +277,42 @@ function Lobby({
   code: string;
   invites?: SeatInvite[];
 }) {
+  const [seat0, seat1] = view.players;
+  const bothIn = view.players.every((p) => p.connected);
+
+  /** Each seat's own slot faces that seat — top rotated, bottom upright,
+   *  same as the board — dimmed until there is a name or at least a code
+   *  to show. */
+  function sideClass(edge: 'top' | 'bottom', player: PublicPlayerView): string {
+    const hasCode = !player.connected && invites?.some((i) => i.seat === player.seat);
+    const state = player.connected ? ' is-connected' : hasCode ? ' has-code' : '';
+    return `lobby__side lobby__side--${edge}${state}`;
+  }
+
   return (
     <div className="screen screen--lobby">
-      <p className="label">Room code</p>
-      <p className="lobby__code">{code}</p>
-      <ul className="lobby__seats">
-        {view.players.map((player) => {
-          const hasCode = !player.connected && invites?.some((i) => i.seat === player.seat);
-          return (
-            <li
-              key={player.seat}
-              className={player.connected ? 'is-connected' : hasCode ? 'has-code' : undefined}
-            >
-              <SeatSlot
-                seat={player.seat}
-                name={player.connected ? player.name : undefined}
-                invites={invites}
-              />
-            </li>
-          );
-        })}
-      </ul>
-      <p className="label screen__footnote">
-        {view.players.every((p) => p.connected)
-          ? 'Both in. Deal from either phone.'
-          : 'Open /play on each phone and enter the code, or scan the code above.'}
-      </p>
+      <div className={sideClass('top', seat1)}>
+        <SeatSlot
+          seat={seat1.seat}
+          name={seat1.connected ? seat1.name : undefined}
+          invites={invites}
+        />
+      </div>
+      <div className="lobby__centre">
+        <CodeBanners code={code} />
+        <p className="label screen__footnote">
+          {bothIn
+            ? 'Both in. Deal from either phone.'
+            : 'Open /play on each phone and enter the code, or scan the code above.'}
+        </p>
+      </div>
+      <div className={sideClass('bottom', seat0)}>
+        <SeatSlot
+          seat={seat0.seat}
+          name={seat0.connected ? seat0.name : undefined}
+          invites={invites}
+        />
+      </div>
     </div>
   );
 }

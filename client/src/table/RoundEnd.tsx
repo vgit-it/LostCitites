@@ -106,31 +106,53 @@ export function RoundEnd({
   players: [PublicPlayerView, PublicPlayerView];
   ready: [boolean, boolean];
 }) {
+  const footnote =
+    ready[0] && ready[1]
+      ? 'Dealing…'
+      : `Waiting for ${players
+          .filter((_, seat) => !ready[seat as Seat])
+          .map((p) => p.name)
+          .join(' and ')}`;
+
+  // The screen people lean over and argue about — showing the arithmetic
+  // (BUILD_SPEC §7) is the point, and that only holds if both players can
+  // actually read it. Stacked, not side by side: seat 1's own breakdown
+  // faces them, seat 0's faces seat 0, and the title/footnote sit in a slim
+  // centre band, each rendered twice so both read those too.
   return (
     <div className="screen screen--round-end">
-      <h1 className="screen__title">Round {round} scored</h1>
-      <div className="breakdown-pair">
-        <PlayerBreakdown player={players[0]} />
+      <div className="round-end__side round-end__side--top">
         <PlayerBreakdown player={players[1]} />
       </div>
-      <p className="label screen__footnote">
-        {ready[0] && ready[1]
-          ? 'Dealing…'
-          : `Waiting for ${players
-              .filter((_, seat) => !ready[seat as Seat])
-              .map((p) => p.name)
-              .join(' and ')}`}
-      </p>
+      <div className="round-end__centre">
+        <div className="round-end__banner round-end__banner--top">
+          <h1 className="screen__title">Round {round} scored</h1>
+          <p className="label screen__footnote">{footnote}</p>
+        </div>
+        <div className="round-end__banner round-end__banner--bottom">
+          <h1 className="screen__title">Round {round} scored</h1>
+          <p className="label screen__footnote">{footnote}</p>
+        </div>
+      </div>
+      <div className="round-end__side round-end__side--bottom">
+        <PlayerBreakdown player={players[0]} />
+      </div>
     </div>
   );
 }
 
-export function MatchEnd({ players }: { players: [PublicPlayerView, PublicPlayerView] }) {
-  const totals = players.map((p) => p.roundScores.reduce((a, b) => a + b, 0)) as [number, number];
-  const winner = totals[0] === totals[1] ? null : totals[0] > totals[1] ? 0 : 1;
+interface MatchSummaryProps {
+  players: [PublicPlayerView, PublicPlayerView];
+  totals: [number, number];
+  winner: Seat | null;
+}
 
+/** The headline and the three-round table — small enough to render twice
+ *  rather than rotate a leaf inside a shared one, same trade the round-end
+ *  banner makes. */
+function MatchSummary({ players, totals, winner }: MatchSummaryProps) {
   return (
-    <div className="screen screen--match-end">
+    <>
       <h1 className="screen__title">
         {winner === null ? 'A tie' : `${players[winner].name} wins`}
       </h1>
@@ -156,6 +178,22 @@ export function MatchEnd({ players }: { players: [PublicPlayerView, PublicPlayer
           ))}
         </tbody>
       </table>
+    </>
+  );
+}
+
+export function MatchEnd({ players }: { players: [PublicPlayerView, PublicPlayerView] }) {
+  const totals = players.map((p) => p.roundScores.reduce((a, b) => a + b, 0)) as [number, number];
+  const winner = totals[0] === totals[1] ? null : totals[0] > totals[1] ? 0 : 1;
+
+  return (
+    <div className="screen screen--match-end">
+      <div className="match-end__copy match-end__copy--top">
+        <MatchSummary players={players} totals={totals} winner={winner} />
+      </div>
+      <div className="match-end__copy match-end__copy--bottom">
+        <MatchSummary players={players} totals={totals} winner={winner} />
+      </div>
     </div>
   );
 }

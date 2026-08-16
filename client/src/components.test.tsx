@@ -10,7 +10,7 @@ import { Card } from './shared/Card';
 import { Column } from './table/Column';
 import { profilePoints } from './table/ElevationProfile';
 import { DiscardRow, deckUrgency } from './table/DiscardRow';
-import { PlayerBreakdown } from './table/RoundEnd';
+import { MatchEnd, PlayerBreakdown, RoundEnd } from './table/RoundEnd';
 import { Hand, drawnCardId, sortHand } from './phone/Hand';
 import { perRow } from './phone/handRows';
 import {
@@ -36,7 +36,7 @@ import { columnExtent, columnMetrics, sideMetrics } from './table/columnMetrics'
 import { planFlight } from './table/flights';
 import { JoinCode } from './table/JoinCode';
 import { qrMatrix, qrPath } from './table/qrCode';
-import { Lane, NameRow, SeatInvite, SeatPlate, SeatSlot } from './table/Table';
+import { Lane, Lobby, NameRow, SeatInvite, SeatPlate, SeatSlot } from './table/Table';
 import { JoinScreen } from './phone/JoinScreen';
 import { Phone } from './phone/Phone';
 import { createInMemoryRejoinStore } from './session/rejoinStore';
@@ -933,6 +933,63 @@ describe('round-end breakdown', () => {
     expect(screen.getByText('× 3 + 20')).toBeTruthy();
     expect(screen.getAllByText('41')).toHaveLength(2); // column score and round total
   });
+
+  it('stacks both breakdowns, seat 1 rotated to face them and seat 0 upright', () => {
+    const { container } = render(
+      <RoundEnd
+        round={2}
+        players={[player({}), { ...player({}), seat: 1, name: 'Bo' }]}
+        ready={[false, false]}
+      />,
+    );
+    const top = container.querySelector('.round-end__side--top');
+    const bottom = container.querySelector('.round-end__side--bottom');
+    // Seat 1's own breakdown faces seat 1 (top, rotated); seat 0's faces
+    // seat 0 (bottom, upright) — matching the board's own top/bottom split.
+    expect(top?.querySelector('.breakdown__name')?.textContent).toBe('Bo');
+    expect(bottom?.querySelector('.breakdown__name')?.textContent).toBe('Paul');
+  });
+
+  it('reads the round title and footnote from both ends, one of them rotated', () => {
+    const { container } = render(
+      <RoundEnd round={2} players={[player({}), player({})]} ready={[true, false]} />,
+    );
+    const banners = container.querySelectorAll('.round-end__banner');
+    expect(banners).toHaveLength(2);
+    banners.forEach((banner) => {
+      expect(banner.querySelector('.screen__title')?.textContent).toBe('Round 2 scored');
+    });
+    expect(container.querySelector('.round-end__banner--top')).toBeTruthy();
+    expect(container.querySelector('.round-end__banner--bottom')).toBeTruthy();
+  });
+});
+
+describe('match end', () => {
+  function player(overrides: Partial<PublicPlayerView> = {}): PublicPlayerView {
+    return {
+      seat: 0,
+      name: 'Paul',
+      connected: true,
+      handCount: 8,
+      expeditions: { yellow: [], blue: [], white: [], green: [], red: [] },
+      roundScores: [10, -5, 20],
+      currentRoundScore: 0,
+      ...overrides,
+    };
+  }
+
+  it('renders the whole summary twice, one copy rotated to face seat 1', () => {
+    const { container } = render(
+      <MatchEnd players={[player(), player({ seat: 1, name: 'Bo', roundScores: [0, 0, 0] })]} />,
+    );
+    const copies = container.querySelectorAll('.match-end__copy');
+    expect(copies).toHaveLength(2);
+    copies.forEach((copy) => {
+      expect(copy.querySelector('.screen__title')?.textContent).toBe('Paul wins');
+    });
+    expect(container.querySelector('.match-end__copy--top')).toBeTruthy();
+    expect(container.querySelector('.match-end__copy--bottom')).toBeTruthy();
+  });
 });
 
 describe('column metrics', () => {
@@ -1714,6 +1771,13 @@ describe('a seat slot in the lobby', () => {
     expect(screen.getByRole('img', { name: /seat 1/i })).toBeTruthy();
   });
 
+  it('names the seat in visible text too, not just the SVG title', () => {
+    // The SVG <title> is invisible until something reads it aloud; nothing
+    // on screen used to say which of the two codes was which seat's.
+    render(<SeatSlot seat={0} invites={invites} />);
+    expect(screen.getByText('Seat 1')).toBeTruthy();
+  });
+
   it('shows the player’s name instead once they are connected, never both', () => {
     render(<SeatSlot seat={0} name="Paul" invites={invites} />);
     expect(screen.getByText('Paul')).toBeTruthy();
@@ -1725,6 +1789,58 @@ describe('a seat slot in the lobby', () => {
     render(<SeatSlot seat={1} />);
     expect(screen.getByText(/seat 2 — waiting/i)).toBeTruthy();
     expect(screen.queryByRole('img')).toBeNull();
+  });
+});
+
+describe('the lobby screen', () => {
+  const invites: SeatInvite[] = [
+    { seat: 0, url: 'http://x/play?code=417&seat=0' },
+    { seat: 1, url: 'http://x/play?code=417&seat=1' },
+  ];
+
+  function seated(seat: 0 | 1, name: string, connected: boolean): PublicPlayerView {
+    return {
+      seat,
+      name,
+      connected,
+      handCount: 0,
+      expeditions: { yellow: [], blue: [], white: [], green: [], red: [] },
+      roundScores: [],
+      currentRoundScore: 0,
+    };
+  }
+
+  const view: TableView = {
+    viewer: 'table',
+    round: 1,
+    stage: 'lobby',
+    deckCount: 60,
+    discardTops: { yellow: null, blue: null, white: null, green: null, red: null },
+    turn: 0,
+    phase: 'place',
+    legalDrawSources: [],
+    readyForNextRound: [false, false],
+    players: [seated(0, '', false), seated(1, '', false)],
+  };
+
+  it('faces each seat toward its own edge — top rotated, bottom upright', () => {
+    const { container } = render(<Lobby view={view} code="417" invites={invites} />);
+    expect(container.querySelector('.lobby__side--top')?.querySelector('.join-qr')).toBeTruthy();
+    expect(container.querySelector('.lobby__side--bottom')?.querySelector('.join-qr')).toBeTruthy();
+  });
+
+  it('names each seat in visible text, not just an SVG title — regression for #12', () => {
+    const { container } = render(<Lobby view={view} code="417" invites={invites} />);
+    expect(container.querySelector('.lobby__side--top')?.textContent).toContain('Seat 2');
+    expect(container.querySelector('.lobby__side--bottom')?.textContent).toContain('Seat 1');
+  });
+
+  it('reads the room code from both ends, one of them rotated', () => {
+    const { container } = render(<Lobby view={view} code="417" invites={invites} />);
+    const banners = container.querySelectorAll('.lobby__banner');
+    expect(banners).toHaveLength(2);
+    banners.forEach((banner) => expect(banner.textContent).toContain('417'));
+    expect(container.querySelector('.lobby__banner--top')).toBeTruthy();
   });
 });
 

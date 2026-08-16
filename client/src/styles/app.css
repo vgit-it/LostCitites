@@ -704,7 +704,12 @@ button.card:not(:disabled):active {
   align-items: center;
   justify-content: center;
   gap: 1rem;
-  height: 100%;
+  /* flex: 1, not height: 100% — this is a flex item of .table now, sharing
+     the column with up to two reconnect bars (Table.tsx), and a fixed
+     percentage of .table's own height would ignore however much of it
+     those bars already took. */
+  flex: 1;
+  min-height: 0;
   padding: 2rem;
   text-align: center;
 }
@@ -729,26 +734,53 @@ button.card:not(:disabled):active {
   margin: 0;
 }
 
-.lobby__seats {
-  display: flex;
-  gap: 2rem;
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  font-size: 1.1rem;
+/* Fills the full height and stacks three bands, same shape as round-end:
+   each seat's own slot faces that seat, and the room code — read by
+   whoever is scanning it or typing it in — sits in a centre band, twice. */
+.screen--lobby {
+  justify-content: space-between;
 }
 
-.lobby__seats li {
+.lobby__side {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.5rem;
+  font-size: 1.1rem;
   opacity: 0.5;
 }
 
-.lobby__seats li.is-connected,
-.lobby__seats li.has-code {
+.lobby__side.is-connected,
+.lobby__side.has-code {
   opacity: 1;
+}
+
+/* Rotated as one block, same trade round-end's own side makes: this screen
+   has no positioned descendant a rotated ancestor would break. */
+.lobby__side--top {
+  transform: rotate(180deg);
+}
+
+.lobby__centre {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.lobby__banner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.lobby__banner--top {
+  transform: rotate(180deg);
+}
+
+.lobby__seat-label {
+  margin: 0;
 }
 
 .lobby__dot {
@@ -785,12 +817,47 @@ button.card:not(:disabled):active {
 
 /* ---------- round end ---------- */
 
-.breakdown-pair {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
-  gap: 2rem;
+/* The screen fills its full height and stacks three bands rather than the
+   base .screen's single centred column: each player's own breakdown faces
+   them, and a slim centre band between the two carries the title and
+   footnote read by both. */
+.screen--round-end {
+  justify-content: space-between;
+}
+
+.round-end__side {
+  display: flex;
+  justify-content: center;
   width: 100%;
-  max-width: 70rem;
+}
+
+.round-end__side .breakdown {
+  width: 100%;
+  max-width: 35rem;
+}
+
+/* Rotated as one block — heading, table, everything — rather than per leaf:
+   this screen has no positioned descendant a rotated ancestor would break,
+   unlike .board__side (CardFlight's containing-block risk, columnMetrics'
+   own translateX). */
+.round-end__side--top {
+  transform: rotate(180deg);
+}
+
+.round-end__centre {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.round-end__banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.round-end__banner--top {
+  transform: rotate(180deg);
 }
 
 .breakdown {
@@ -848,6 +915,28 @@ button.card:not(:disabled):active {
 .match-table tr.is-winner {
   background: rgb(44 95 62 / 0.12);
 }
+
+/* Toward the screen's own top/bottom edges, same as round-end and the
+   lobby, rather than the base .screen's single centred column — each copy
+   sits nearer the seat it faces instead of both huddling in the middle. */
+.screen--match-end {
+  justify-content: space-between;
+}
+
+/* The whole summary — headline and table both — is small enough to render
+   twice rather than pick apart into rotated leaves, same trade the
+   round-end banner makes. */
+.match-end__copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.match-end__copy--top {
+  transform: rotate(180deg);
+}
+
 /* ---------- phone ---------- */
 
 /* Portrait. The phone is held upright in two hands, thumbs on the row at
@@ -1389,6 +1478,10 @@ button.card:not(:disabled):active {
   background: var(--warn);
   color: var(--paper);
   text-align: center;
+}
+
+.reconnect-bar--top {
+  transform: rotate(180deg);
 }
 
 .toast {
