@@ -194,5 +194,7 @@ aligned board, §8 for the portrait phone and the carry-and-throw model.
 - Wake Lock needs a secure context; over plain `http://192.168.x.x` screens
   can sleep (vibrate-on-turn still fires).
 - State is in-memory only — restarting the server ends the match.
-- Card art is CSS-only by design; any art swap is confined to
-  `client/src/shared/Card.tsx`.
+- Card art (the M9 illustrated background plates and the suit-tinted
+  `Card_Overlay`) lives in `client/src/assets/img/`, wired through
+  `client/src/shared/Card.tsx`'s class list and its CSS in `app.css` — still
+  the one file/its stylesheet, nothing else needs to know a card has art.

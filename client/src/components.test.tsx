@@ -120,6 +120,14 @@ describe('Card', () => {
     expect(screen.getByLabelText('red wager').className).toContain('card--wager');
   });
 
+  it('carries a colour class, for CSS to pick this suit\'s illustrated art', () => {
+    const { container: numbered } = render(<Card card={num('green', 4)} />);
+    expect(numbered.querySelector('.card')?.className).toContain('card--green');
+
+    const { container: wagerCard } = render(<Card card={wager('red', 1)} />);
+    expect(wagerCard.querySelector('.card')?.className).toContain('card--red');
+  });
+
   it('does not fire onClick while dimmed', () => {
     const onClick = vi.fn();
     render(<Card card={num('green', 4)} dimmed onClick={onClick} />);
