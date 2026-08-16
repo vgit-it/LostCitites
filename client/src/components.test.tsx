@@ -137,6 +137,28 @@ describe('Column', () => {
     expect(screen.getByLabelText('blue 4')).toBeTruthy();
     expect(screen.getByLabelText('blue 9')).toBeTruthy();
   });
+
+  it('renders in play order for both directions — the CSS mirrors the screen position, not the DOM', () => {
+    // An upward column used to reverse the array here so the newest card
+    // would land nearest the centre; that put it at the wrong edge. Both
+    // directions now render the same DOM order and --i, and it is
+    // .column--up's flex-direction: column-reverse plus .lane--top's
+    // --dir-x that do the actual mirroring, in CSS, not here.
+    const cards = [num('blue', 2), num('blue', 5), num('blue', 9)];
+    for (const direction of ['down', 'up'] as const) {
+      const { container } = render(<Column colour="blue" cards={cards} direction={direction} />);
+      const rendered = Array.from(container.querySelectorAll('[data-card-id]')).map((el) =>
+        el.getAttribute('data-card-id'),
+      );
+      expect(rendered).toEqual(['blue-2', 'blue-5', 'blue-9']);
+
+      const indices = Array.from(container.querySelectorAll<HTMLElement>('.column__card')).map(
+        (el) => el.style.getPropertyValue('--i'),
+      );
+      expect(indices).toEqual(['0', '1', '2']);
+      cleanup();
+    }
+  });
 });
 
 describe('a lane: a column and its own live score', () => {
@@ -955,6 +977,25 @@ describe('elevation profile', () => {
       '0.000,1.000 0.000,0.500 1.000,0.500 1.000,0.000',
     );
   });
+
+  it('agrees with the card order Column actually renders', () => {
+    // profilePoints maps cards[0] (oldest) to y≈1 — the SVG's own bottom —
+    // for an upward column. Column renders cards[0] as its first DOM child
+    // for 'up' too (see the "renders in play order" test above); it is
+    // .column--up's flex-direction: column-reverse (app.css) that puts that
+    // first DOM child at the *screen*-bottom of the column, next to the
+    // discard row — the same end .lane--top pins the column to. So the
+    // ridge's oldest point and the column's oldest, centre-adjacent card
+    // land at the same screen position. This is the bug §7 fixed: the two
+    // used to disagree.
+    const cards = [num('blue', 2), num('blue', 10)];
+    const { container } = render(<Column colour="blue" cards={cards} direction="up" />);
+    const rendered = Array.from(container.querySelectorAll('[data-card-id]')).map((el) =>
+      el.getAttribute('data-card-id'),
+    );
+    expect(rendered[0]).toBe(cards[0].id);
+    expect(profilePoints(cards, 'up').split(' ')[0]).toBe('0.000,1.000');
+  });
 });
 
 describe('carrying a card', () => {
@@ -1443,6 +1484,7 @@ describe('planning a card’s journey across the table', () => {
       edge: 'bottom',
       direction: 'in',
       hideCardId: 'blue-7',
+      spin: 0,
     });
   });
 
@@ -1480,6 +1522,7 @@ describe('planning a card’s journey across the table', () => {
       edge: 'top',
       direction: 'out',
       hideCardId: null,
+      spin: 0,
     });
   });
 
@@ -1494,6 +1537,27 @@ describe('planning a card’s journey across the table', () => {
   it('has nothing to fly for a screen change', () => {
     expect(planFlight({ name: 'roundOver' }, tableView())).toBeNull();
     expect(planFlight({ name: 'matchOver', winner: 0 }, tableView())).toBeNull();
+  });
+
+  it('turns to face the far player landing on their own expedition, and nothing else', () => {
+    // Seat 1's expedition faces them; the shared discard pile does not, so a
+    // discard from either seat lands upright, and so does seat 0's own
+    // expedition — it already faces the table's own default orientation.
+    const far = num('blue', 7);
+    const near = num('red', 3);
+    expect(
+      planFlight({ name: 'placed', seat: 1, card: far, target: 'expedition' }, tableView())?.spin,
+    ).toBe(180);
+    expect(
+      planFlight({ name: 'placed', seat: 1, card: near, target: 'discard' }, tableView())?.spin,
+    ).toBe(0);
+    expect(
+      planFlight({ name: 'placed', seat: 0, card: near, target: 'expedition' }, tableView())?.spin,
+    ).toBe(0);
+    // Drawing never turns — the source is a shared, upright pile either way.
+    expect(
+      planFlight({ name: 'drew', seat: 1, source: { kind: 'deck' } }, tableView())?.spin,
+    ).toBe(0);
   });
 });
 

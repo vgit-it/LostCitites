@@ -75,6 +75,7 @@ interface Flight {
   from: Rect;
   to: Rect;
   kind: 'land' | 'throw';
+  spin: number;
 }
 
 export function Table({ code, invites }: { code: string; invites?: SeatInvite[] }) {
@@ -121,8 +122,8 @@ export function Table({ code, invites }: { code: string; invites?: SeatInvite[] 
     const off = edgeRect(rect, plan.edge, viewport());
     setFlight(
       plan.direction === 'in'
-        ? { card: plan.card, from: off, to: rect, kind: 'land' }
-        : { card: plan.card, from: rect, to: off, kind: 'throw' },
+        ? { card: plan.card, from: off, to: rect, kind: 'land', spin: plan.spin }
+        : { card: plan.card, from: rect, to: off, kind: 'throw', spin: plan.spin },
     );
     setArrivingId(plan.hideCardId);
   }, [view]);
@@ -169,6 +170,7 @@ export function Table({ code, invites }: { code: string; invites?: SeatInvite[] 
           from={flight.from}
           to={flight.to}
           kind={flight.kind}
+          spin={flight.spin}
           onDone={() => {
             setFlight(null);
             setArrivingId(null);

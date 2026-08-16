@@ -12,6 +12,7 @@
 
 import { Card, Colour, Seat, TableEvent, TableView } from '@shared/types';
 import { Edge, edgeOfSeat } from '../shared/flightPath';
+import { isFlipped } from '../shared/seating';
 
 export interface FlightPlan {
   /**
@@ -34,6 +35,14 @@ export interface FlightPlan {
    * the exact thing it exists to hide.
    */
   hideCardId: string | null;
+  /**
+   * Degrees the clone turns over the flight. An expedition card resting in
+   * the far player's column faces them (180°); everything else on the table
+   * — the shared discard piles, a card leaving toward a phone — stays
+   * upright, so this is 0 unless the destination is a flipped seat's own
+   * column.
+   */
+  spin: number;
 }
 
 /** Where a placed or discarded card comes to rest. */
@@ -56,6 +65,9 @@ export function planFlight(event: TableEvent, before: TableView): FlightPlan | n
       edge: seatEdge(event.seat),
       direction: 'in',
       hideCardId: event.card.id,
+      // The discard pile is shared and stays upright regardless of seat; an
+      // expedition card comes to rest facing its owner.
+      spin: event.target === 'expedition' && isFlipped(event.seat) ? 180 : 0,
     };
   }
 
@@ -69,6 +81,8 @@ export function planFlight(event: TableEvent, before: TableView): FlightPlan | n
       edge: seatEdge(event.seat),
       direction: 'out',
       hideCardId: null,
+      // Leaving a shared, upright pile — nothing to turn to face.
+      spin: 0,
     };
   }
 

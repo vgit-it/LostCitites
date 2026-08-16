@@ -321,9 +321,16 @@ button.card:not(:disabled):active {
    plate, not against the discard band shared with their opponent's rail —
    "my −20" used to sit one hairline rule away from "their −20". The column
    still hangs from the centre-adjacent edge and grows away from it, same as
-   before; only the score rail's row moved. */
+   before; only the score rail's row moved.
+
+   --dir-x flips the horizontal stagger to run in mirror image of the
+   bottom lane — see .column and .column__card below. Mirroring the offset
+   and turning the card itself (.lane--top .column__card .card) are only
+   correct done together: with both, the exposed sliver of a buried card and
+   the rotated card's own top-left index land on the same spot. */
 .lane--top {
   grid-template-rows: var(--score-h) minmax(0, 1fr);
+  --dir-x: -1;
 }
 
 .lane--bottom {
@@ -378,13 +385,23 @@ button.card:not(:disabled):active {
 }
 
 /* A column is a staircase, not a stack: each card steps right as well as
-   down. The horizontal step is the preferred one until a deep column would
-   run past its cell, at which point it is whatever divides the remaining
-   width evenly — the one part of the geometry the CSS has to solve, because
-   the cell width is not known until layout.
+   down — mirrored to step left for the top lane (--dir-x), which is what
+   makes the *later* card cover the *earlier* one from the near-centre side
+   on both sides of the table, not just the bottom one. The horizontal step
+   is the preferred one until a deep column would run past its cell, at
+   which point it is whatever divides the remaining width evenly — the one
+   part of the geometry the CSS has to solve, because the cell width is not
+   known until layout.
 
-   The column then shifts left by half its own run so the staircase stays
-   centred in the cell instead of drifting right as it grows. */
+   justify-self: center shrinks the column to its own content (one card's
+   width) instead of stretching it to the full track, so the translateX
+   below and .elevation's offset both measure from the actual card stack,
+   not the track's far edge — a column shorter than its side's tallest
+   column used to leave the ridge stranded out in the gutter between lanes.
+
+   The column then shifts by half its own run, against --dir-x, so the
+   staircase stays centred in the cell instead of drifting off toward
+   whichever edge it steps. */
 .column {
   --step-x: min(
     calc(var(--card-w) * 0.55),
@@ -394,23 +411,33 @@ button.card:not(:disabled):active {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-self: center;
   min-height: 0;
-  transform: translateX(calc(-0.5 * (var(--n, 1) - 1) * var(--step-x)));
+  transform: translateX(calc(-0.5 * var(--dir-x, 1) * (var(--n, 1) - 1) * var(--step-x)));
 }
 
-/* Stacked by play order, so the newest card is on top in both directions —
-   the two sides paint opposite ways otherwise, because the upward column
-   renders its cards reversed. */
+/* Stacked by play order, so the newest card sits at its owner's own edge —
+   nearest the centre otherwise reads as "arriving," which is backwards —
+   and is also on top, in both directions; the two sides used to paint
+   opposite ways because the upward column rendered its cards reversed. */
 .column__card {
   z-index: var(--i, 0);
-  transform: translateX(calc(var(--i, 0) * var(--step-x)));
+  transform: translateX(calc(var(--dir-x, 1) * var(--i, 0) * var(--step-x)));
 }
 
-/* In a staircase the exposed part of a buried card is its left edge, so the
-   corner index carries the value and the big centred numeral is dropped —
-   overlapped, it is bisected by the next card and reads as a rendering
-   fault rather than a number. The fan makes exactly this trade for exactly
-   this reason. The mark moves out from under the index. */
+/* In a staircase the exposed part of a buried card is its edge nearest the
+   card behind it — screen-left for the bottom lane, screen-right for the
+   mirrored top one — so the corner index carries the value and the big
+   centred numeral is dropped: overlapped, it is bisected by the next card
+   and reads as a rendering fault rather than a number. The fan makes
+   exactly this trade for exactly this reason. The mark moves out from under
+   the index.
+
+   Both live at the card's own local top-left and need no lane-specific
+   override: a top-lane card is turned 180° as a whole
+   (.lane--top .column__card .card, below), which carries this same corner
+   to the screen-space spot the mirrored stagger exposes — and, seen from
+   the far player's own side of the table, back to their top-left again. */
 .column .card__index {
   display: block;
   font-size: calc(var(--card-width) * 0.44);
@@ -427,7 +454,18 @@ button.card:not(:disabled):active {
   bottom: 0.2rem;
 }
 
-/* The signature element: a stepped ridge line down the column's left edge. */
+/* An expedition card faces its owner. Scoped to the card leaf alone, never
+   to .column (which carries its own translateX for the stair above) or to
+   .board__side (container-type: size, and so a containing-block risk for a
+   position: fixed CardFlight) — a .card has no positioned descendants of
+   its own, so rotating it composes with nothing. */
+.lane--top .column__card .card {
+  transform: rotate(180deg);
+}
+
+/* The signature element: a stepped ridge line down the column's edge
+   nearest the card behind it — the same edge the corner index above reads
+   from, mirrored to the opposite side for the top lane along with it. */
 .elevation {
   position: absolute;
   top: 0;
@@ -436,6 +474,12 @@ button.card:not(:disabled):active {
   width: 0.75rem;
   opacity: 0.7;
   pointer-events: none;
+}
+
+.lane--top .elevation {
+  left: auto;
+  right: -0.9rem;
+  transform: scaleX(-1);
 }
 
 /* --show of each card stays visible — enough to read the number. Derived
