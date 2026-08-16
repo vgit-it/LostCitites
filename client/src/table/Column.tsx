@@ -27,10 +27,6 @@ export function Column({ colour, cards, direction, arrivingId }: ColumnProps) {
     );
   }
 
-  // Cards are appended in play order; drawing them in reverse for an upward
-  // column keeps the most recent card nearest the centre of the table.
-  const ordered = direction === 'up' ? [...cards].reverse() : cards;
-
   return (
     <div
       className={`column column--${direction}`}
@@ -40,15 +36,18 @@ export function Column({ colour, cards, direction, arrivingId }: ColumnProps) {
       aria-label={`${colour} expedition`}
     >
       <ElevationProfile cards={cards} colour={colour} direction={direction} />
-      {ordered.map((card, i) => (
+      {cards.map((card, i) => (
         <div
           className={`column__card${card.id === arrivingId ? ' is-arriving' : ''}`}
           key={card.id}
           // The flight's destination is measured through this.
           data-card-id={card.id}
-          // Indexed by play order, not render order, so the stair runs the
-          // same way for both players even though one column grows upward.
-          style={{ '--i': direction === 'up' ? ordered.length - 1 - i : i } as React.CSSProperties}
+          // Play order, same as render order now for both directions — an
+          // upward column used to render its cards reversed, which put the
+          // newest one nearest the centre of the table instead of nearest
+          // its own owner. .column--up's flex-direction: column-reverse is
+          // what actually flips it upward on screen from here.
+          style={{ '--i': i } as React.CSSProperties}
         >
           <Card card={card} size="md" />
         </div>

@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import { COLOURS, Card as CardModel, Colour, DrawSource, Seat } from '@shared/types';
 import { Card, CardSlot } from '../shared/Card';
 import { Sample, trimSamples, velocityFrom } from '../shared/carry';
+import { isFlipped } from '../shared/seating';
 import { reachOutcome, towardSeat } from './drawGesture';
 
 export interface DiscardRowProps {
@@ -124,9 +125,18 @@ export function DiscardRow({
     legalDrawSources.flatMap((s) => (s.kind === 'discard' ? [s.colour] : [])),
   );
 
+  // Whose turn it is is otherwise only readable from the active player's own
+  // name plate, at the far edge of their own side — position and colour
+  // here instead, so it reads identically from both seats without needing
+  // to be rotated for either. Every turn, not just while the row is armed:
+  // the gap this closes is "no shared cue at all," not "no cue while
+  // drawing."
+  const turnEdgeClass =
+    activeSeat === undefined ? '' : ` discard-row--turn-${isFlipped(activeSeat) ? 'top' : 'bottom'}`;
+
   return (
     <div
-      className={`discard-row${armed ? ' is-armed' : ''}`}
+      className={`discard-row${armed ? ' is-armed' : ''}${turnEdgeClass}`}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -158,7 +168,13 @@ export function DiscardRow({
           />
         ))}
         {deckCount > 0 && <div className="card card--back" aria-hidden="true" />}
+        {/* Two chips, same count, one at each end — the deck sits between
+            both seats same as the discard piles, so both need to read it
+            without leaning across the table. */}
         <span className="deck__count" aria-hidden="true">
+          {deckCount}
+        </span>
+        <span className="deck__count deck__count--far" aria-hidden="true">
           {deckCount}
         </span>
         <span className="sr-only">{deckCount} cards left in the deck</span>

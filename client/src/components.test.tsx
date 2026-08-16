@@ -10,7 +10,7 @@ import { Card } from './shared/Card';
 import { Column } from './table/Column';
 import { profilePoints } from './table/ElevationProfile';
 import { DiscardRow, deckUrgency } from './table/DiscardRow';
-import { PlayerBreakdown } from './table/RoundEnd';
+import { MatchEnd, PlayerBreakdown, RoundEnd } from './table/RoundEnd';
 import { Hand, drawnCardId, sortHand } from './phone/Hand';
 import { perRow } from './phone/handRows';
 import {
@@ -30,12 +30,13 @@ import { HandActions } from './phone/HandActions';
 import { expeditionHint, placementWeight, throwLabel } from './phone/columnRead';
 import { CardFlight } from './shared/CardFlight';
 import { centreOf, edgeOfSeat, edgeRect } from './shared/flightPath';
+import { isFlipped } from './shared/seating';
 import { Invite, joinUrl, parseInvite, resolveInvite } from './shared/invite';
 import { columnExtent, columnMetrics, sideMetrics } from './table/columnMetrics';
 import { planFlight } from './table/flights';
 import { JoinCode } from './table/JoinCode';
 import { qrMatrix, qrPath } from './table/qrCode';
-import { Lane, SeatInvite, SeatPlate, SeatSlot } from './table/Table';
+import { Lane, Lobby, NameRow, SeatInvite, SeatPlate, SeatSlot } from './table/Table';
 import { JoinScreen } from './phone/JoinScreen';
 import { Phone } from './phone/Phone';
 import { createInMemoryRejoinStore } from './session/rejoinStore';
@@ -112,6 +113,17 @@ describe('Card', () => {
     expect(container.querySelector('.card__value')?.textContent).toBe('7');
   });
 
+  it('carries a second index at the opposite corner, for the shared discard row', () => {
+    // Off everywhere else (CSS); on the DOM always, same as the near index —
+    // this is the one place a card is read from both ends of the table at
+    // once, with nobody's own reading direction to default to.
+    const { container } = render(<Card card={num('blue', 7)} />);
+    const far = container.querySelector('.card__index--far');
+    expect(far?.textContent).toBe('7');
+    expect(far?.getAttribute('aria-hidden')).toBe('true');
+    expect(far).not.toBe(container.querySelector('.card__index'));
+  });
+
   it('announces toggle state only when it is actually selectable', () => {
     // A table card is not a toggle; aria-pressed="false" would claim it is.
     const { container: plain } = render(<Card card={num('blue', 7)} />);
@@ -135,6 +147,28 @@ describe('Column', () => {
     expect(screen.getByLabelText('blue wager')).toBeTruthy();
     expect(screen.getByLabelText('blue 4')).toBeTruthy();
     expect(screen.getByLabelText('blue 9')).toBeTruthy();
+  });
+
+  it('renders in play order for both directions — the CSS mirrors the screen position, not the DOM', () => {
+    // An upward column used to reverse the array here so the newest card
+    // would land nearest the centre; that put it at the wrong edge. Both
+    // directions now render the same DOM order and --i, and it is
+    // .column--up's flex-direction: column-reverse plus .lane--top's
+    // --dir-x that do the actual mirroring, in CSS, not here.
+    const cards = [num('blue', 2), num('blue', 5), num('blue', 9)];
+    for (const direction of ['down', 'up'] as const) {
+      const { container } = render(<Column colour="blue" cards={cards} direction={direction} />);
+      const rendered = Array.from(container.querySelectorAll('[data-card-id]')).map((el) =>
+        el.getAttribute('data-card-id'),
+      );
+      expect(rendered).toEqual(['blue-2', 'blue-5', 'blue-9']);
+
+      const indices = Array.from(container.querySelectorAll<HTMLElement>('.column__card')).map(
+        (el) => el.style.getPropertyValue('--i'),
+      );
+      expect(indices).toEqual(['0', '1', '2']);
+      cleanup();
+    }
   });
 });
 
@@ -239,6 +273,24 @@ describe('a seat plate: the player at the edge of their own side', () => {
     );
     expect(container.querySelector('.seat-plate__offline')).toBeTruthy();
   });
+
+  it('carries the round counter, read by both — only the far one is flipped', () => {
+    // Used to render only in the top row (Table.tsx), which the round
+    // belonged to the table, not a player — but that meant only seat 0 ever
+    // read it right-side up. Both rows carry it now.
+    const { container: near } = render(
+      <NameRow player={seatPlayer()} active={false} phase="place" flipped={false} round={2} />,
+    );
+    const nearChip = near.querySelector('.round-chip');
+    expect(nearChip?.textContent).toBe('Round 2/3');
+
+    const { container: far } = render(
+      <NameRow player={seatPlayer()} active={false} phase="place" flipped round={2} />,
+    );
+    expect(far.querySelector('.round-chip')?.textContent).toBe('Round 2/3');
+    expect(far.querySelector('.name-row')?.className).toContain('name-row--top');
+    expect(near.querySelector('.name-row')?.className).toContain('name-row--bottom');
+  });
 });
 
 describe('deck urgency', () => {
@@ -251,9 +303,12 @@ describe('deck urgency', () => {
     expect(deckUrgency(0)).toBe('critical');
   });
 
-  it('always shows the draw pile count', () => {
+  it('always shows the draw pile count, once per end', () => {
+    // Two chips, not one: the deck sits between both seats, same as a
+    // discard pile, so each needs its own copy rather than leaning across
+    // the table to read the other's.
     render(<DiscardRow deckCount={44} discardTops={noTops} />);
-    expect(screen.getByText('44')).toBeTruthy();
+    expect(screen.getAllByText('44')).toHaveLength(2);
   });
 });
 
@@ -878,6 +933,63 @@ describe('round-end breakdown', () => {
     expect(screen.getByText('× 3 + 20')).toBeTruthy();
     expect(screen.getAllByText('41')).toHaveLength(2); // column score and round total
   });
+
+  it('stacks both breakdowns, seat 1 rotated to face them and seat 0 upright', () => {
+    const { container } = render(
+      <RoundEnd
+        round={2}
+        players={[player({}), { ...player({}), seat: 1, name: 'Bo' }]}
+        ready={[false, false]}
+      />,
+    );
+    const top = container.querySelector('.round-end__side--top');
+    const bottom = container.querySelector('.round-end__side--bottom');
+    // Seat 1's own breakdown faces seat 1 (top, rotated); seat 0's faces
+    // seat 0 (bottom, upright) — matching the board's own top/bottom split.
+    expect(top?.querySelector('.breakdown__name')?.textContent).toBe('Bo');
+    expect(bottom?.querySelector('.breakdown__name')?.textContent).toBe('Paul');
+  });
+
+  it('reads the round title and footnote from both ends, one of them rotated', () => {
+    const { container } = render(
+      <RoundEnd round={2} players={[player({}), player({})]} ready={[true, false]} />,
+    );
+    const banners = container.querySelectorAll('.round-end__banner');
+    expect(banners).toHaveLength(2);
+    banners.forEach((banner) => {
+      expect(banner.querySelector('.screen__title')?.textContent).toBe('Round 2 scored');
+    });
+    expect(container.querySelector('.round-end__banner--top')).toBeTruthy();
+    expect(container.querySelector('.round-end__banner--bottom')).toBeTruthy();
+  });
+});
+
+describe('match end', () => {
+  function player(overrides: Partial<PublicPlayerView> = {}): PublicPlayerView {
+    return {
+      seat: 0,
+      name: 'Paul',
+      connected: true,
+      handCount: 8,
+      expeditions: { yellow: [], blue: [], white: [], green: [], red: [] },
+      roundScores: [10, -5, 20],
+      currentRoundScore: 0,
+      ...overrides,
+    };
+  }
+
+  it('renders the whole summary twice, one copy rotated to face seat 1', () => {
+    const { container } = render(
+      <MatchEnd players={[player(), player({ seat: 1, name: 'Bo', roundScores: [0, 0, 0] })]} />,
+    );
+    const copies = container.querySelectorAll('.match-end__copy');
+    expect(copies).toHaveLength(2);
+    copies.forEach((copy) => {
+      expect(copy.querySelector('.screen__title')?.textContent).toBe('Paul wins');
+    });
+    expect(container.querySelector('.match-end__copy--top')).toBeTruthy();
+    expect(container.querySelector('.match-end__copy--bottom')).toBeTruthy();
+  });
 });
 
 describe('column metrics', () => {
@@ -953,6 +1065,25 @@ describe('elevation profile', () => {
     expect(profilePoints([num('blue', 2), num('blue', 10)], 'up')).toBe(
       '0.000,1.000 0.000,0.500 1.000,0.500 1.000,0.000',
     );
+  });
+
+  it('agrees with the card order Column actually renders', () => {
+    // profilePoints maps cards[0] (oldest) to y≈1 — the SVG's own bottom —
+    // for an upward column. Column renders cards[0] as its first DOM child
+    // for 'up' too (see the "renders in play order" test above); it is
+    // .column--up's flex-direction: column-reverse (app.css) that puts that
+    // first DOM child at the *screen*-bottom of the column, next to the
+    // discard row — the same end .lane--top pins the column to. So the
+    // ridge's oldest point and the column's oldest, centre-adjacent card
+    // land at the same screen position. This is the bug §7 fixed: the two
+    // used to disagree.
+    const cards = [num('blue', 2), num('blue', 10)];
+    const { container } = render(<Column colour="blue" cards={cards} direction="up" />);
+    const rendered = Array.from(container.querySelectorAll('[data-card-id]')).map((el) =>
+      el.getAttribute('data-card-id'),
+    );
+    expect(rendered[0]).toBe(cards[0].id);
+    expect(profilePoints(cards, 'up').split(' ')[0]).toBe('0.000,1.000');
   });
 });
 
@@ -1235,6 +1366,11 @@ describe('flight paths', () => {
     expect(edgeOfSeat(1)).toBe('top');
   });
 
+  it('agrees with seating.ts, the one place this mapping actually lives', () => {
+    expect(isFlipped(0)).toBe(false);
+    expect(isFlipped(1)).toBe(true);
+  });
+
   it('finds the centre of a rect', () => {
     expect(centreOf(rect)).toEqual({ x: 140, y: 260 });
   });
@@ -1289,6 +1425,27 @@ describe('the discard row', () => {
     reach(container.querySelector('[data-pile="green"]') as HTMLElement, 120);
     expect(onDraw).not.toHaveBeenCalled();
     expect(container.querySelector('.discard-row')?.className).not.toContain('is-armed');
+  });
+
+  it('marks whose turn it is on its own edge, every turn — not just while armed', () => {
+    // The only other "whose turn" cue is on the active player's own name
+    // plate, at the far edge of their own side — this is the one a glance
+    // across the table also catches, and it has to work outside a draw
+    // phase too, or it would only ever show for half of each player's turn.
+    const { container: seat0Turn } = render(
+      <DiscardRow deckCount={40} discardTops={tops} activeSeat={0} />,
+    );
+    expect(seat0Turn.querySelector('.discard-row')?.className).toContain(
+      'discard-row--turn-bottom',
+    );
+
+    const { container: seat1Turn } = render(
+      <DiscardRow deckCount={40} discardTops={tops} activeSeat={1} />,
+    );
+    expect(seat1Turn.querySelector('.discard-row')?.className).toContain('discard-row--turn-top');
+
+    const { container: noTurn } = render(<DiscardRow deckCount={40} discardTops={tops} />);
+    expect(noTurn.querySelector('.discard-row')?.className).not.toContain('discard-row--turn');
   });
 
   it('draws the deck as a stack of backs, and keeps the anchor addressable', () => {
@@ -1437,6 +1594,7 @@ describe('planning a card’s journey across the table', () => {
       edge: 'bottom',
       direction: 'in',
       hideCardId: 'blue-7',
+      spin: 0,
     });
   });
 
@@ -1474,6 +1632,7 @@ describe('planning a card’s journey across the table', () => {
       edge: 'top',
       direction: 'out',
       hideCardId: null,
+      spin: 0,
     });
   });
 
@@ -1488,6 +1647,27 @@ describe('planning a card’s journey across the table', () => {
   it('has nothing to fly for a screen change', () => {
     expect(planFlight({ name: 'roundOver' }, tableView())).toBeNull();
     expect(planFlight({ name: 'matchOver', winner: 0 }, tableView())).toBeNull();
+  });
+
+  it('turns to face the far player landing on their own expedition, and nothing else', () => {
+    // Seat 1's expedition faces them; the shared discard pile does not, so a
+    // discard from either seat lands upright, and so does seat 0's own
+    // expedition — it already faces the table's own default orientation.
+    const far = num('blue', 7);
+    const near = num('red', 3);
+    expect(
+      planFlight({ name: 'placed', seat: 1, card: far, target: 'expedition' }, tableView())?.spin,
+    ).toBe(180);
+    expect(
+      planFlight({ name: 'placed', seat: 1, card: near, target: 'discard' }, tableView())?.spin,
+    ).toBe(0);
+    expect(
+      planFlight({ name: 'placed', seat: 0, card: near, target: 'expedition' }, tableView())?.spin,
+    ).toBe(0);
+    // Drawing never turns — the source is a shared, upright pile either way.
+    expect(
+      planFlight({ name: 'drew', seat: 1, source: { kind: 'deck' } }, tableView())?.spin,
+    ).toBe(0);
   });
 });
 
@@ -1591,6 +1771,13 @@ describe('a seat slot in the lobby', () => {
     expect(screen.getByRole('img', { name: /seat 1/i })).toBeTruthy();
   });
 
+  it('names the seat in visible text too, not just the SVG title', () => {
+    // The SVG <title> is invisible until something reads it aloud; nothing
+    // on screen used to say which of the two codes was which seat's.
+    render(<SeatSlot seat={0} invites={invites} />);
+    expect(screen.getByText('Seat 1')).toBeTruthy();
+  });
+
   it('shows the player’s name instead once they are connected, never both', () => {
     render(<SeatSlot seat={0} name="Paul" invites={invites} />);
     expect(screen.getByText('Paul')).toBeTruthy();
@@ -1602,6 +1789,58 @@ describe('a seat slot in the lobby', () => {
     render(<SeatSlot seat={1} />);
     expect(screen.getByText(/seat 2 — waiting/i)).toBeTruthy();
     expect(screen.queryByRole('img')).toBeNull();
+  });
+});
+
+describe('the lobby screen', () => {
+  const invites: SeatInvite[] = [
+    { seat: 0, url: 'http://x/play?code=417&seat=0' },
+    { seat: 1, url: 'http://x/play?code=417&seat=1' },
+  ];
+
+  function seated(seat: 0 | 1, name: string, connected: boolean): PublicPlayerView {
+    return {
+      seat,
+      name,
+      connected,
+      handCount: 0,
+      expeditions: { yellow: [], blue: [], white: [], green: [], red: [] },
+      roundScores: [],
+      currentRoundScore: 0,
+    };
+  }
+
+  const view: TableView = {
+    viewer: 'table',
+    round: 1,
+    stage: 'lobby',
+    deckCount: 60,
+    discardTops: { yellow: null, blue: null, white: null, green: null, red: null },
+    turn: 0,
+    phase: 'place',
+    legalDrawSources: [],
+    readyForNextRound: [false, false],
+    players: [seated(0, '', false), seated(1, '', false)],
+  };
+
+  it('faces each seat toward its own edge — top rotated, bottom upright', () => {
+    const { container } = render(<Lobby view={view} code="417" invites={invites} />);
+    expect(container.querySelector('.lobby__side--top')?.querySelector('.join-qr')).toBeTruthy();
+    expect(container.querySelector('.lobby__side--bottom')?.querySelector('.join-qr')).toBeTruthy();
+  });
+
+  it('names each seat in visible text, not just an SVG title — regression for #12', () => {
+    const { container } = render(<Lobby view={view} code="417" invites={invites} />);
+    expect(container.querySelector('.lobby__side--top')?.textContent).toContain('Seat 2');
+    expect(container.querySelector('.lobby__side--bottom')?.textContent).toContain('Seat 1');
+  });
+
+  it('reads the room code from both ends, one of them rotated', () => {
+    const { container } = render(<Lobby view={view} code="417" invites={invites} />);
+    const banners = container.querySelectorAll('.lobby__banner');
+    expect(banners).toHaveLength(2);
+    banners.forEach((banner) => expect(banner.textContent).toContain('417'));
+    expect(container.querySelector('.lobby__banner--top')).toBeTruthy();
   });
 });
 

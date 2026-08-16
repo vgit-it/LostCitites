@@ -73,6 +73,15 @@
   letter-spacing: -0.02em;
 }
 
+/* The second index a card carries for the one place it is read from both
+   ends of the table at once: the shared discard row, which faces neither
+   seat (see .discard-row below). Off everywhere else, same as .card__index
+   itself — a hand and a column both already face their one reader, so a
+   second copy there would just be noise. */
+.card__index--far {
+  display: none;
+}
+
 /* Scoped to <button>: a non-interactive card is a <div> now (Card.tsx), and
    :not(:disabled) matches any element that does not support the disabled
    attribute at all — a plain div included — so an unscoped rule here would
@@ -214,6 +223,12 @@ button.card:not(:disabled):active {
   justify-self: center;
 }
 
+/* Read by both players — it renders in both name rows, turned to face the
+   one at the far end same as their own plate beside it. */
+.name-row--top .round-chip {
+  transform: rotate(180deg);
+}
+
 .seat-plate {
   grid-column: 2 / -1;
   display: flex;
@@ -317,12 +332,24 @@ button.card:not(:disabled):active {
   min-height: 0;
 }
 
+/* The score rail sits at each player's own outer edge, next to their name
+   plate, not against the discard band shared with their opponent's rail —
+   "my −20" used to sit one hairline rule away from "their −20". The column
+   still hangs from the centre-adjacent edge and grows away from it, same as
+   before; only the score rail's row moved.
+
+   --dir-x flips the horizontal stagger to run in mirror image of the
+   bottom lane — see .column and .column__card below. Mirroring the offset
+   and turning the card itself (.lane--top .column__card .card) are only
+   correct done together: with both, the exposed sliver of a buried card and
+   the rotated card's own top-left index land on the same spot. */
 .lane--top {
-  grid-template-rows: minmax(0, 1fr) var(--score-h);
+  grid-template-rows: var(--score-h) minmax(0, 1fr);
+  --dir-x: -1;
 }
 
 .lane--bottom {
-  grid-template-rows: var(--score-h) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) var(--score-h);
 }
 
 /* Explicit rows rather than relying on DOM order: Table.tsx renders the
@@ -330,20 +357,20 @@ button.card:not(:disabled):active {
    the right place in source order for assistive tech), which would
    otherwise auto-place it into the big row instead of the score rail. */
 .lane--top .column {
-  grid-row: 1;
+  grid-row: 2;
   /* The column hangs from the edge nearest the centre — the bottom of its
-     own 1fr row, where the score rail and the discard row sit — and grows
-     upward away from it. Matches the old .board__side--top{align-items:end}
-     this replaced, moved down one level. */
+     own 1fr row, where the discard row sits — and grows upward on screen,
+     away from it, toward the score rail and the name plate. Matches the old
+     .board__side--top{align-items:end} this replaced, moved down one level. */
   align-self: end;
 }
 
 .lane--bottom .lane__score {
-  grid-row: 1;
+  grid-row: 2;
 }
 
 .lane--bottom .column {
-  grid-row: 2;
+  grid-row: 1;
   align-self: start;
 }
 
@@ -365,20 +392,31 @@ button.card:not(:disabled):active {
 }
 
 /* Read by the player opposite: rotated to face them, and — being the row
-   nearest the discard band — placed in the second row of the lane's grid. */
+   nearest their own name plate — placed in the first row of the lane's
+   grid. */
 .lane--top .lane__score {
-  grid-row: 2;
+  grid-row: 1;
   transform: rotate(180deg);
 }
 
 /* A column is a staircase, not a stack: each card steps right as well as
-   down. The horizontal step is the preferred one until a deep column would
-   run past its cell, at which point it is whatever divides the remaining
-   width evenly — the one part of the geometry the CSS has to solve, because
-   the cell width is not known until layout.
+   down — mirrored to step left for the top lane (--dir-x), which is what
+   makes the *later* card cover the *earlier* one from the near-centre side
+   on both sides of the table, not just the bottom one. The horizontal step
+   is the preferred one until a deep column would run past its cell, at
+   which point it is whatever divides the remaining width evenly — the one
+   part of the geometry the CSS has to solve, because the cell width is not
+   known until layout.
 
-   The column then shifts left by half its own run so the staircase stays
-   centred in the cell instead of drifting right as it grows. */
+   justify-self: center shrinks the column to its own content (one card's
+   width) instead of stretching it to the full track, so the translateX
+   below and .elevation's offset both measure from the actual card stack,
+   not the track's far edge — a column shorter than its side's tallest
+   column used to leave the ridge stranded out in the gutter between lanes.
+
+   The column then shifts by half its own run, against --dir-x, so the
+   staircase stays centred in the cell instead of drifting off toward
+   whichever edge it steps. */
 .column {
   --step-x: min(
     calc(var(--card-w) * 0.55),
@@ -388,23 +426,33 @@ button.card:not(:disabled):active {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-self: center;
   min-height: 0;
-  transform: translateX(calc(-0.5 * (var(--n, 1) - 1) * var(--step-x)));
+  transform: translateX(calc(-0.5 * var(--dir-x, 1) * (var(--n, 1) - 1) * var(--step-x)));
 }
 
-/* Stacked by play order, so the newest card is on top in both directions —
-   the two sides paint opposite ways otherwise, because the upward column
-   renders its cards reversed. */
+/* Stacked by play order, so the newest card sits at its owner's own edge —
+   nearest the centre otherwise reads as "arriving," which is backwards —
+   and is also on top, in both directions; the two sides used to paint
+   opposite ways because the upward column rendered its cards reversed. */
 .column__card {
   z-index: var(--i, 0);
-  transform: translateX(calc(var(--i, 0) * var(--step-x)));
+  transform: translateX(calc(var(--dir-x, 1) * var(--i, 0) * var(--step-x)));
 }
 
-/* In a staircase the exposed part of a buried card is its left edge, so the
-   corner index carries the value and the big centred numeral is dropped —
-   overlapped, it is bisected by the next card and reads as a rendering
-   fault rather than a number. The fan makes exactly this trade for exactly
-   this reason. The mark moves out from under the index. */
+/* In a staircase the exposed part of a buried card is its edge nearest the
+   card behind it — screen-left for the bottom lane, screen-right for the
+   mirrored top one — so the corner index carries the value and the big
+   centred numeral is dropped: overlapped, it is bisected by the next card
+   and reads as a rendering fault rather than a number. The fan makes
+   exactly this trade for exactly this reason. The mark moves out from under
+   the index.
+
+   Both live at the card's own local top-left and need no lane-specific
+   override: a top-lane card is turned 180° as a whole
+   (.lane--top .column__card .card, below), which carries this same corner
+   to the screen-space spot the mirrored stagger exposes — and, seen from
+   the far player's own side of the table, back to their top-left again. */
 .column .card__index {
   display: block;
   font-size: calc(var(--card-width) * 0.44);
@@ -421,7 +469,18 @@ button.card:not(:disabled):active {
   bottom: 0.2rem;
 }
 
-/* The signature element: a stepped ridge line down the column's left edge. */
+/* An expedition card faces its owner. Scoped to the card leaf alone, never
+   to .column (which carries its own translateX for the stair above) or to
+   .board__side (container-type: size, and so a containing-block risk for a
+   position: fixed CardFlight) — a .card has no positioned descendants of
+   its own, so rotating it composes with nothing. */
+.lane--top .column__card .card {
+  transform: rotate(180deg);
+}
+
+/* The signature element: a stepped ridge line down the column's edge
+   nearest the card behind it — the same edge the corner index above reads
+   from, mirrored to the opposite side for the top lane along with it. */
 .elevation {
   position: absolute;
   top: 0;
@@ -430,6 +489,12 @@ button.card:not(:disabled):active {
   width: 0.75rem;
   opacity: 0.7;
   pointer-events: none;
+}
+
+.lane--top .elevation {
+  left: auto;
+  right: -0.9rem;
+  transform: scaleX(-1);
 }
 
 /* --show of each card stays visible — enough to read the number. Derived
@@ -471,8 +536,57 @@ button.card:not(:disabled):active {
   background: var(--paper);
 }
 
+/* No text, so it needs no rotation and reads identically from both seats:
+   whoever is to move gets a solid accent on the edge of the discard row
+   nearest their own side. An inset box-shadow, not a wider border — turning
+   every turn would otherwise change .discard-row's own box height by the
+   difference and shift the six-track grid it shares with both sides by that
+   much, breaking the pile alignment this band was built to hold exactly.
+   The turn text on the active player's own plate is still the detailed
+   answer; this is the one a glance across the table also catches. */
+.discard-row--turn-top {
+  box-shadow: inset 0 3px 0 var(--ink);
+}
+
+.discard-row--turn-bottom {
+  box-shadow: inset 0 -3px 0 var(--ink);
+}
+
 .discard-row .card {
   --card-width: var(--pile-w);
+}
+
+/* A discard pile is shared, read from both ends of the table at once, so it
+   gets the same treatment as a column: the big centred numeral drops, and
+   the corner index carries the value — twice, once per corner, the second
+   one turned to face the far player the way a real two-headed card would.
+   Matches the column's own trade of legibility for a readable-at-a-glance
+   corner (columnMetrics.ts), enlarged the same way. */
+.discard-row .card__index,
+.discard-row .card__index--far {
+  display: block;
+  font-size: calc(var(--card-width) * 0.5);
+}
+
+.discard-row .card__index--far {
+  top: auto;
+  left: auto;
+  bottom: 0.2rem;
+  right: 0.32rem;
+  transform: rotate(180deg);
+}
+
+.discard-row .card__value {
+  display: none;
+}
+
+/* The two indices claim the top-left and bottom-right corners; the mark
+   moves to bottom-left, same trade .column makes for the same reason —
+   left in the base top-left corner it would sit directly under the near
+   index. */
+.discard-row .card__mark {
+  top: auto;
+  bottom: 0.2rem;
 }
 
 /* ---- the one gesture the table takes ---- */
@@ -546,9 +660,15 @@ button.card:not(:disabled):active {
   opacity: 0.7;
 }
 
+/* Two chips, one per end of the deck's top card — the deck is shared, same
+   as the discard piles, so both seats read it without leaning across the
+   table. .deck's own place-items: center is what the un-suffixed chip
+   used to rely on for a single centred count; each chip now overrides it
+   to its own end instead. */
 .deck__count {
   grid-area: 1 / 1;
   z-index: 1;
+  align-self: end;
   padding: 0.08em 0.3em;
   border-radius: var(--radius);
   font-family: var(--font-numeral);
@@ -559,6 +679,11 @@ button.card:not(:disabled):active {
      but not against the striped ink-coloured back this now sits on. */
   background: var(--paper);
   color: var(--ink);
+}
+
+.deck__count--far {
+  align-self: start;
+  transform: rotate(180deg);
 }
 
 .deck--low .deck__count {
@@ -579,7 +704,12 @@ button.card:not(:disabled):active {
   align-items: center;
   justify-content: center;
   gap: 1rem;
-  height: 100%;
+  /* flex: 1, not height: 100% — this is a flex item of .table now, sharing
+     the column with up to two reconnect bars (Table.tsx), and a fixed
+     percentage of .table's own height would ignore however much of it
+     those bars already took. */
+  flex: 1;
+  min-height: 0;
   padding: 2rem;
   text-align: center;
 }
@@ -604,26 +734,53 @@ button.card:not(:disabled):active {
   margin: 0;
 }
 
-.lobby__seats {
-  display: flex;
-  gap: 2rem;
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  font-size: 1.1rem;
+/* Fills the full height and stacks three bands, same shape as round-end:
+   each seat's own slot faces that seat, and the room code — read by
+   whoever is scanning it or typing it in — sits in a centre band, twice. */
+.screen--lobby {
+  justify-content: space-between;
 }
 
-.lobby__seats li {
+.lobby__side {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.5rem;
+  font-size: 1.1rem;
   opacity: 0.5;
 }
 
-.lobby__seats li.is-connected,
-.lobby__seats li.has-code {
+.lobby__side.is-connected,
+.lobby__side.has-code {
   opacity: 1;
+}
+
+/* Rotated as one block, same trade round-end's own side makes: this screen
+   has no positioned descendant a rotated ancestor would break. */
+.lobby__side--top {
+  transform: rotate(180deg);
+}
+
+.lobby__centre {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.lobby__banner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.lobby__banner--top {
+  transform: rotate(180deg);
+}
+
+.lobby__seat-label {
+  margin: 0;
 }
 
 .lobby__dot {
@@ -660,12 +817,47 @@ button.card:not(:disabled):active {
 
 /* ---------- round end ---------- */
 
-.breakdown-pair {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
-  gap: 2rem;
+/* The screen fills its full height and stacks three bands rather than the
+   base .screen's single centred column: each player's own breakdown faces
+   them, and a slim centre band between the two carries the title and
+   footnote read by both. */
+.screen--round-end {
+  justify-content: space-between;
+}
+
+.round-end__side {
+  display: flex;
+  justify-content: center;
   width: 100%;
-  max-width: 70rem;
+}
+
+.round-end__side .breakdown {
+  width: 100%;
+  max-width: 35rem;
+}
+
+/* Rotated as one block — heading, table, everything — rather than per leaf:
+   this screen has no positioned descendant a rotated ancestor would break,
+   unlike .board__side (CardFlight's containing-block risk, columnMetrics'
+   own translateX). */
+.round-end__side--top {
+  transform: rotate(180deg);
+}
+
+.round-end__centre {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.round-end__banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.round-end__banner--top {
+  transform: rotate(180deg);
 }
 
 .breakdown {
@@ -723,6 +915,28 @@ button.card:not(:disabled):active {
 .match-table tr.is-winner {
   background: rgb(44 95 62 / 0.12);
 }
+
+/* Toward the screen's own top/bottom edges, same as round-end and the
+   lobby, rather than the base .screen's single centred column — each copy
+   sits nearer the seat it faces instead of both huddling in the middle. */
+.screen--match-end {
+  justify-content: space-between;
+}
+
+/* The whole summary — headline and table both — is small enough to render
+   twice rather than pick apart into rotated leaves, same trade the
+   round-end banner makes. */
+.match-end__copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.match-end__copy--top {
+  transform: rotate(180deg);
+}
+
 /* ---------- phone ---------- */
 
 /* Portrait. The phone is held upright in two hands, thumbs on the row at
@@ -1264,6 +1478,10 @@ button.card:not(:disabled):active {
   background: var(--warn);
   color: var(--paper);
   text-align: center;
+}
+
+.reconnect-bar--top {
+  transform: rotate(180deg);
 }
 
 .toast {

@@ -27,6 +27,7 @@ import { FLIGHT_MS } from '../platform/motion';
 import { useWakeLock } from '../platform/wakeLock';
 import { CardFlight, Rect } from '../shared/CardFlight';
 import { edgeRect } from '../shared/flightPath';
+import { isFlipped } from '../shared/seating';
 import { Column } from './Column';
 import { ColumnMetrics, sideMetrics } from './columnMetrics';
 import { DiscardRow } from './DiscardRow';
@@ -74,6 +75,7 @@ interface Flight {
   from: Rect;
   to: Rect;
   kind: 'land' | 'throw';
+  spin: number;
 }
 
 export function Table({ code, invites }: { code: string; invites?: SeatInvite[] }) {
@@ -120,8 +122,8 @@ export function Table({ code, invites }: { code: string; invites?: SeatInvite[] 
     const off = edgeRect(rect, plan.edge, viewport());
     setFlight(
       plan.direction === 'in'
-        ? { card: plan.card, from: off, to: rect, kind: 'land' }
-        : { card: plan.card, from: rect, to: off, kind: 'throw' },
+        ? { card: plan.card, from: off, to: rect, kind: 'land', spin: plan.spin }
+        : { card: plan.card, from: rect, to: off, kind: 'throw', spin: plan.spin },
     );
     setArrivingId(plan.hideCardId);
   }, [view]);
@@ -147,7 +149,11 @@ export function Table({ code, invites }: { code: string; invites?: SeatInvite[] 
 
   return (
     <div className="table">
-      {status !== 'open' && <div className="reconnect-bar label">Reconnecting…</div>}
+      {/* Read from both ends, same as everything else on this screen — the
+          top copy is rotated to face seat 1. */}
+      {status !== 'open' && (
+        <div className="reconnect-bar reconnect-bar--top label">Reconnecting…</div>
+      )}
       {view.stage === 'lobby' && <Lobby view={view} code={code} invites={invites} />}
       {view.stage === 'playing' && (
         <Board
@@ -160,6 +166,9 @@ export function Table({ code, invites }: { code: string; invites?: SeatInvite[] 
         <RoundEnd round={view.round} players={view.players} ready={view.readyForNextRound} />
       )}
       {view.stage === 'matchEnd' && <MatchEnd players={view.players} />}
+      {status !== 'open' && (
+        <div className="reconnect-bar reconnect-bar--bottom label">Reconnecting…</div>
+      )}
 
       {flight && (
         <CardFlight
@@ -168,6 +177,7 @@ export function Table({ code, invites }: { code: string; invites?: SeatInvite[] 
           from={flight.from}
           to={flight.to}
           kind={flight.kind}
+          spin={flight.spin}
           onDone={() => {
             setFlight(null);
             setArrivingId(null);
@@ -197,11 +207,38 @@ export function SeatSlot({
     );
   }
   const invite = invites?.find((i) => i.seat === seat);
-  if (invite) return <JoinCode url={invite.url} label={`Scan to join as seat ${seat + 1}`} />;
+  if (invite) {
+    return (
+      <>
+        <JoinCode url={invite.url} label={`Scan to join as seat ${seat + 1}`} />
+        {/* The SVG title above is invisible until something reads it aloud —
+            this is the same fact, in text, for the seat itself to point to. */}
+        <p className="label lobby__seat-label">{`Seat ${seat + 1}`}</p>
+      </>
+    );
+  }
   return (
     <>
       <span className="lobby__dot" aria-hidden="true" />
       {`Seat ${seat + 1} — waiting`}
+    </>
+  );
+}
+
+/** Room code, twice, so both seats read it without leaning across the
+ *  table — same trade the round-end title/footnote and the round chip
+ *  both make. */
+function CodeBanners({ code }: { code: string }) {
+  return (
+    <>
+      <div className="lobby__banner lobby__banner--top">
+        <p className="label">Room code</p>
+        <p className="lobby__code">{code}</p>
+      </div>
+      <div className="lobby__banner lobby__banner--bottom">
+        <p className="label">Room code</p>
+        <p className="lobby__code">{code}</p>
+      </div>
     </>
   );
 }
@@ -217,23 +254,21 @@ function Waiting({
 }) {
   return (
     <div className="screen screen--lobby">
-      <p className="label">Room code</p>
-      <p className="lobby__code">{code}</p>
-      {invites && (
-        <ul className="lobby__seats">
-          {invites.map((invite) => (
-            <li key={invite.seat} className="has-code">
-              <SeatSlot seat={invite.seat} invites={invites} />
-            </li>
-          ))}
-        </ul>
-      )}
-      <p className="label">{status === 'open' ? 'Joining…' : 'Connecting…'}</p>
+      <div className="lobby__side lobby__side--top">
+        {invites && <SeatSlot seat={1} invites={invites} />}
+      </div>
+      <div className="lobby__centre">
+        <CodeBanners code={code} />
+        <p className="label">{status === 'open' ? 'Joining…' : 'Connecting…'}</p>
+      </div>
+      <div className="lobby__side lobby__side--bottom">
+        {invites && <SeatSlot seat={0} invites={invites} />}
+      </div>
     </div>
   );
 }
 
-function Lobby({
+export function Lobby({
   view,
   code,
   invites,
@@ -242,32 +277,42 @@ function Lobby({
   code: string;
   invites?: SeatInvite[];
 }) {
+  const [seat0, seat1] = view.players;
+  const bothIn = view.players.every((p) => p.connected);
+
+  /** Each seat's own slot faces that seat — top rotated, bottom upright,
+   *  same as the board — dimmed until there is a name or at least a code
+   *  to show. */
+  function sideClass(edge: 'top' | 'bottom', player: PublicPlayerView): string {
+    const hasCode = !player.connected && invites?.some((i) => i.seat === player.seat);
+    const state = player.connected ? ' is-connected' : hasCode ? ' has-code' : '';
+    return `lobby__side lobby__side--${edge}${state}`;
+  }
+
   return (
     <div className="screen screen--lobby">
-      <p className="label">Room code</p>
-      <p className="lobby__code">{code}</p>
-      <ul className="lobby__seats">
-        {view.players.map((player) => {
-          const hasCode = !player.connected && invites?.some((i) => i.seat === player.seat);
-          return (
-            <li
-              key={player.seat}
-              className={player.connected ? 'is-connected' : hasCode ? 'has-code' : undefined}
-            >
-              <SeatSlot
-                seat={player.seat}
-                name={player.connected ? player.name : undefined}
-                invites={invites}
-              />
-            </li>
-          );
-        })}
-      </ul>
-      <p className="label screen__footnote">
-        {view.players.every((p) => p.connected)
-          ? 'Both in. Deal from either phone.'
-          : 'Open /play on each phone and enter the code, or scan the code above.'}
-      </p>
+      <div className={sideClass('top', seat1)}>
+        <SeatSlot
+          seat={seat1.seat}
+          name={seat1.connected ? seat1.name : undefined}
+          invites={invites}
+        />
+      </div>
+      <div className="lobby__centre">
+        <CodeBanners code={code} />
+        <p className="label screen__footnote">
+          {bothIn
+            ? 'Both in. Deal from either phone.'
+            : 'Open /play on each phone and enter the code, or scan the code above.'}
+        </p>
+      </div>
+      <div className={sideClass('bottom', seat0)}>
+        <SeatSlot
+          seat={seat0.seat}
+          name={seat0.connected ? seat0.name : undefined}
+          invites={invites}
+        />
+      </div>
     </div>
   );
 }
@@ -312,12 +357,13 @@ export function SeatPlate({
 }
 
 /**
- * One band of the name row: the round counter's gutter cell (top only, and
- * never rotated — it belongs to the table, not to a player) plus the plate,
- * spanning the five colour tracks so it lines up with nothing in particular
- * and reads centred above/below the board.
+ * One band of the name row: the round counter's gutter cell — read by both
+ * players, so it renders in both name rows now rather than the top one
+ * alone, rotated in the top one same as the plate beside it — plus the
+ * plate, spanning the five colour tracks so it lines up with nothing in
+ * particular and reads centred above/below the board.
  */
-function NameRow({
+export function NameRow({
   player,
   active,
   phase,
@@ -328,16 +374,13 @@ function NameRow({
   active: boolean;
   phase: TableView['phase'];
   flipped: boolean;
-  /** Only the top row carries this — one counter for the whole table. */
-  round?: number;
+  round: number;
 }) {
   return (
     <div className={`name-row name-row--${flipped ? 'top' : 'bottom'}`}>
-      {round !== undefined && (
-        <span className="round-chip label" style={{ gridColumn: 1 }}>
-          Round {round}/3
-        </span>
-      )}
+      <span className="round-chip label" style={{ gridColumn: 1 }}>
+        Round {round}/3
+      </span>
       <SeatPlate player={player} active={active} phase={phase} flipped={flipped} />
     </div>
   );
@@ -401,14 +444,20 @@ function Board({
 
   return (
     <div className="board">
-      <NameRow player={seat1} active={view.turn === 1} phase={view.phase} flipped round={view.round} />
+      <NameRow
+        player={seat1}
+        active={view.turn === 1}
+        phase={view.phase}
+        flipped={isFlipped(1)}
+        round={view.round}
+      />
 
       {/*
         Each side is sized by its own longest column, so a player with a deep
         expedition does not shrink the other's cards.
       */}
       <section
-        className="board__side board__side--top"
+        className="board__side"
         style={sideStyle(sideMetrics(COLOURS.map((c) => seat1.expeditions[c].length)))}
         aria-label={`${seat1.name} expeditions`}
       >
@@ -438,7 +487,7 @@ function Board({
       />
 
       <section
-        className="board__side board__side--bottom"
+        className="board__side"
         style={sideStyle(sideMetrics(COLOURS.map((c) => seat0.expeditions[c].length)))}
         aria-label={`${seat0.name} expeditions`}
       >
@@ -453,7 +502,13 @@ function Board({
         ))}
       </section>
 
-      <NameRow player={seat0} active={view.turn === 0} phase={view.phase} flipped={false} />
+      <NameRow
+        player={seat0}
+        active={view.turn === 0}
+        phase={view.phase}
+        flipped={isFlipped(0)}
+        round={view.round}
+      />
     </div>
   );
 }
