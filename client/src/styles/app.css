@@ -69,8 +69,12 @@
   inset: 0;
   border-radius: inherit;
   background-image: var(--card-general);
-  background-size: cover;
-  background-position: center;
+  /* Fit the card's width exactly and centre on both axes, rather than
+     cropping to cover — the plates are square, the card is 2:3, so a
+     cover fit was cutting off the top and bottom of every illustration. */
+  background-size: 100% auto;
+  background-position: center center;
+  background-repeat: no-repeat;
 }
 
 .card--wager .card__art {
@@ -99,16 +103,20 @@
 .card__value {
   /* The numeral is the functional payload — it must dominate. Ink, not
      paper: the art's centre third is deliberately pale/quiet (M9 brief), so
-     a pale numeral would lose contrast exactly where it has to read. */
+     a pale numeral would lose contrast exactly where it has to read. A
+     classic serif instead of the chrome's condensed sans, and 2pt smaller
+     than the plain scaled formula. */
   position: relative;
   color: var(--ink);
-  font-size: calc(var(--card-width) * 0.72);
-  letter-spacing: -0.03em;
+  font-family: var(--font-card-numeral);
+  font-size: calc(var(--card-width) * 0.72 - 2pt);
+  font-weight: 700;
+  letter-spacing: -0.01em;
   text-shadow: 0 1px 3px rgb(232 227 214 / 0.7);
 }
 
 .card--wager .card__value {
-  font-size: calc(var(--card-width) * 0.5);
+  font-size: calc(var(--card-width) * 0.5 - 2pt);
 }
 
 /* Non-colour channel: a per-colour mark in the corner. Card.tsx no longer
@@ -684,15 +692,15 @@ button.card:not(:disabled):active {
   opacity: 0.7;
 }
 
-/* Two chips, one per end of the deck's top card — the deck is shared, same
-   as the discard piles, so both seats read it without leaning across the
-   table. .deck's own place-items: center is what the un-suffixed chip
-   used to rely on for a single centred count; each chip now overrides it
-   to its own end instead. */
+/* One chip, centred on the deck's top card via .deck's own place-items:
+   center, and turned sideways rather than upright toward either seat — the
+   deck sits between both same as the discard piles, so a chip that faced
+   one of them would read upside-down to the other. Rotated 90deg it costs
+   both seats the same head-tilt instead of favouring one. */
 .deck__count {
   grid-area: 1 / 1;
   z-index: 1;
-  align-self: end;
+  transform: rotate(90deg);
   padding: 0.08em 0.3em;
   border-radius: var(--radius);
   font-family: var(--font-numeral);
@@ -703,11 +711,6 @@ button.card:not(:disabled):active {
      but not against the striped ink-coloured back this now sits on. */
   background: var(--paper);
   color: var(--ink);
-}
-
-.deck__count--far {
-  align-self: start;
-  transform: rotate(180deg);
 }
 
 .deck--low .deck__count {
