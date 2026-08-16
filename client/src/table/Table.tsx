@@ -27,6 +27,7 @@ import { FLIGHT_MS } from '../platform/motion';
 import { useWakeLock } from '../platform/wakeLock';
 import { CardFlight, Rect } from '../shared/CardFlight';
 import { edgeRect } from '../shared/flightPath';
+import { isFlipped } from '../shared/seating';
 import { Column } from './Column';
 import { ColumnMetrics, sideMetrics } from './columnMetrics';
 import { DiscardRow } from './DiscardRow';
@@ -401,14 +402,20 @@ function Board({
 
   return (
     <div className="board">
-      <NameRow player={seat1} active={view.turn === 1} phase={view.phase} flipped round={view.round} />
+      <NameRow
+        player={seat1}
+        active={view.turn === 1}
+        phase={view.phase}
+        flipped={isFlipped(1)}
+        round={view.round}
+      />
 
       {/*
         Each side is sized by its own longest column, so a player with a deep
         expedition does not shrink the other's cards.
       */}
       <section
-        className="board__side board__side--top"
+        className="board__side"
         style={sideStyle(sideMetrics(COLOURS.map((c) => seat1.expeditions[c].length)))}
         aria-label={`${seat1.name} expeditions`}
       >
@@ -438,7 +445,7 @@ function Board({
       />
 
       <section
-        className="board__side board__side--bottom"
+        className="board__side"
         style={sideStyle(sideMetrics(COLOURS.map((c) => seat0.expeditions[c].length)))}
         aria-label={`${seat0.name} expeditions`}
       >
@@ -453,7 +460,7 @@ function Board({
         ))}
       </section>
 
-      <NameRow player={seat0} active={view.turn === 0} phase={view.phase} flipped={false} />
+      <NameRow player={seat0} active={view.turn === 0} phase={view.phase} flipped={isFlipped(0)} />
     </div>
   );
 }

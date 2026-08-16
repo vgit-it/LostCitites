@@ -6,6 +6,8 @@
 // and a card arriving over the bottom of a tablet are the same journey read
 // in opposite directions, which is exactly what makes this one function.
 
+import { edgeOfSeat as seatEdge } from './seating';
+
 /** Just the parts of a DOMRect a flight needs, so tests can build one. */
 export interface Rect {
   x: number;
@@ -51,7 +53,7 @@ export function edgeRect(rect: Rect, edge: Edge, viewport: Viewport): Rect {
 
 /** The edge a seat sits at. Seat 0 reads the table from the bottom. */
 export function edgeOfSeat(seat: 0 | 1): Edge {
-  return seat === 0 ? 'bottom' : 'top';
+  return seatEdge(seat);
 }
 
 /**

@@ -30,6 +30,7 @@ import { HandActions } from './phone/HandActions';
 import { expeditionHint, placementWeight, throwLabel } from './phone/columnRead';
 import { CardFlight } from './shared/CardFlight';
 import { centreOf, edgeOfSeat, edgeRect } from './shared/flightPath';
+import { isFlipped } from './shared/seating';
 import { Invite, joinUrl, parseInvite, resolveInvite } from './shared/invite';
 import { columnExtent, columnMetrics, sideMetrics } from './table/columnMetrics';
 import { planFlight } from './table/flights';
@@ -1233,6 +1234,11 @@ describe('flight paths', () => {
     expect(edgeRect(rect, 'bottom', viewport)).toEqual(edgeRect(rect, 'bottom', viewport));
     expect(edgeOfSeat(0)).toBe('bottom');
     expect(edgeOfSeat(1)).toBe('top');
+  });
+
+  it('agrees with seating.ts, the one place this mapping actually lives', () => {
+    expect(isFlipped(0)).toBe(false);
+    expect(isFlipped(1)).toBe(true);
   });
 
   it('finds the centre of a rect', () => {

@@ -10,6 +10,7 @@
 
 import { Seat } from '@shared/types';
 import { FLICK_V } from '../shared/carry';
+import { isFlipped } from '../shared/seating';
 
 /**
  * px. How far a card must come toward you before letting go takes it.
@@ -33,7 +34,7 @@ export interface Reach {
 
 /** +1 when this seat's own edge is below the board, −1 when it is above. */
 export function towardSeat(seat: Seat): 1 | -1 {
-  return seat === 0 ? 1 : -1;
+  return isFlipped(seat) ? -1 : 1;
 }
 
 /**
