@@ -54,6 +54,7 @@ export function Card({
   const className = [
     'card',
     `card--${size}`,
+    `card--${card.colour}`,
     card.value === 'wager' && 'card--wager',
     dimmed && 'is-dimmed',
     selected && 'is-selected',
@@ -63,6 +64,12 @@ export function Card({
 
   const face = (
     <>
+      {/* The illustrated background plate and the suit-tinted Card_Overlay —
+          both picked by `card--${colour}` / `card--wager` in app.css. Behind
+          the text spans below by document order alone, the same trick this
+          file already relies on for card__mark/card__index. */}
+      <span className="card__art" aria-hidden="true" />
+      <span className="card__overlay" aria-hidden="true" />
       <span className="card__mark" aria-hidden="true">
         {COLOUR_MARK[card.colour]}
       </span>

@@ -39,17 +39,82 @@
   --card-width: 5.5rem;
 }
 
+/* The M9 art: one illustrated background plate per suit (general and wager
+   variants), picked by the card's own colour class. Plain relative url() —
+   Vite hashes and rewrites these through the same asset pipeline as a JS
+   import, base path included, so nothing needs wiring in Card.tsx. */
+.card--yellow {
+  --card-general: url('../assets/img/Suit_1_General.png');
+  --card-wager-art: url('../assets/img/Suit_1_Wager.png');
+}
+.card--blue {
+  --card-general: url('../assets/img/Suit_2_General.png');
+  --card-wager-art: url('../assets/img/Suit_2_Wager.png');
+}
+.card--white {
+  --card-general: url('../assets/img/Suit_3_General.png');
+  --card-wager-art: url('../assets/img/Suit_3_Wager.png');
+}
+.card--green {
+  --card-general: url('../assets/img/Suit_4_General.png');
+  --card-wager-art: url('../assets/img/Suit_4_Wager.png');
+}
+.card--red {
+  --card-general: url('../assets/img/Suit_5_General.png');
+  --card-wager-art: url('../assets/img/Suit_5_Wager.png');
+}
+
+.card__art {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-image: var(--card-general);
+  background-size: cover;
+  background-position: center;
+}
+
+.card--wager .card__art {
+  background-image: var(--card-wager-art);
+}
+
+/* Card_Overlay.png is a single flat-grey asset (solid fill, fully transparent
+   elsewhere) shared by every suit — mask + background-color recolours it to
+   this card's own --colour, the same custom property the base .card rule
+   already sets. A rounded element's own background/mask clips to its own
+   border-radius in every supported browser, so nothing here needs
+   overflow: hidden. */
+.card__overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-color: var(--colour);
+  -webkit-mask-image: url('../assets/img/Card_Overlay.png');
+  mask-image: url('../assets/img/Card_Overlay.png');
+  -webkit-mask-size: cover;
+  mask-size: cover;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
 .card__value {
-  /* The numeral is the functional payload — it must dominate. */
+  /* The numeral is the functional payload — it must dominate. Ink, not
+     paper: the art's centre third is deliberately pale/quiet (M9 brief), so
+     a pale numeral would lose contrast exactly where it has to read. */
+  position: relative;
+  color: var(--ink);
   font-size: calc(var(--card-width) * 0.72);
   letter-spacing: -0.03em;
+  text-shadow: 0 1px 3px rgb(232 227 214 / 0.7);
 }
 
 .card--wager .card__value {
   font-size: calc(var(--card-width) * 0.5);
 }
 
-/* Non-colour channel: a per-colour mark in the corner. */
+/* Non-colour channel: a per-colour mark in the corner. Unlike .card__value
+   this sits over the tinted swoosh band, not the art's pale centre third —
+   the inherited --paper stays exactly as good a fit against the overlay's
+   solid colour disc as it was against the old flat colour fill. */
 .card__mark {
   position: absolute;
   top: 0.25rem;
@@ -128,13 +193,9 @@ button.card:not(:disabled):active {
   width: var(--card-width);
   aspect-ratio: 2 / 3;
   border-radius: var(--radius);
-  background: repeating-linear-gradient(
-    -45deg,
-    var(--ink),
-    var(--ink) 4px,
-    color-mix(in srgb, var(--ink) 72%, var(--paper)) 4px,
-    color-mix(in srgb, var(--ink) 72%, var(--paper)) 8px
-  );
+  background-image: url('../assets/img/CardBack.png');
+  background-size: cover;
+  background-position: center;
   box-shadow: 0 2px 6px rgb(31 29 26 / 0.28);
 }
 
