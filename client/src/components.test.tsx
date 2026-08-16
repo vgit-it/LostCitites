@@ -3,7 +3,7 @@
 // Leaf components, rendered from fixture props. No provider, no socket,
 // no mocking — which is the point of keeping them presentational.
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Card as CardModel, Colour, PlayerView, PublicPlayerView, TableView } from '@shared/types';
 import { Card } from './shared/Card';
@@ -36,7 +36,7 @@ import { columnExtent, columnMetrics, sideMetrics } from './table/columnMetrics'
 import { planFlight } from './table/flights';
 import { JoinCode } from './table/JoinCode';
 import { qrMatrix, qrPath } from './table/qrCode';
-import { Lane, Lobby, NameRow, SeatInvite, SeatPlate, SeatSlot } from './table/Table';
+import { Lane, Lobby, NameRow, SeatInvite, SeatPlate, SeatSlot, Table } from './table/Table';
 import { JoinScreen } from './phone/JoinScreen';
 import { Phone } from './phone/Phone';
 import { createInMemoryRejoinStore } from './session/rejoinStore';
@@ -51,6 +51,26 @@ import {
   vibrateTick,
 } from './platform/vibrate';
 import { FLIGHT_MS, animate } from './platform/motion';
+import {
+  playCardDrawn,
+  playCardPlaced,
+  resetSoundElements,
+  resetSoundUnlock,
+  unlockSounds,
+} from './platform/sound';
+
+// Table.tsx calls these two directly on every 'placed' / 'drew' cue. Spying
+// through the real implementation (rather than a bare vi.fn) keeps the
+// 'sound effects' tests below exercising actual behaviour, while still
+// letting the table-wiring test assert on call counts.
+vi.mock('./platform/sound', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./platform/sound')>();
+  return {
+    ...actual,
+    playCardPlaced: vi.fn(actual.playCardPlaced),
+    playCardDrawn: vi.fn(actual.playCardDrawn),
+  };
+});
 
 afterEach(cleanup);
 
@@ -1920,6 +1940,204 @@ describe('haptics', () => {
       },
     });
     expect(() => vibrateCommit()).not.toThrow();
+  });
+});
+
+describe('sound effects', () => {
+  class FakeAudio {
+    src: string;
+    preload = '';
+    currentTime = 0;
+    paused = true;
+    playCalls = 0;
+
+    constructor(src: string) {
+      this.src = src;
+    }
+
+    play(): Promise<void> | undefined {
+      this.playCalls += 1;
+      this.paused = false;
+      return Promise.resolve();
+    }
+
+    pause(): void {
+      this.paused = true;
+    }
+  }
+
+  function stubAudio(makeInstance: (src: string) => FakeAudio = (src) => new FakeAudio(src)) {
+    const instances: FakeAudio[] = [];
+    vi.stubGlobal(
+      'Audio',
+      class {
+        constructor(src: string) {
+          const el = makeInstance(src);
+          instances.push(el);
+          return el;
+        }
+      },
+    );
+    return instances;
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    resetSoundUnlock();
+    resetSoundElements();
+  });
+
+  it('is silent where there is no Audio constructor at all', () => {
+    vi.stubGlobal('Audio', undefined);
+    expect(() => playCardPlaced()).not.toThrow();
+    expect(() => playCardDrawn()).not.toThrow();
+  });
+
+  it('plays a distinct clip for a placement and for a draw', () => {
+    const instances = stubAudio();
+
+    playCardPlaced();
+    playCardDrawn();
+
+    expect(instances).toHaveLength(2);
+    expect(instances[0].src).toContain('card-place');
+    expect(instances[1].src).toContain('card-draw');
+    expect(instances[0].playCalls).toBe(1);
+    expect(instances[1].playCalls).toBe(1);
+  });
+
+  it('reuses one element per clip rather than constructing on every play', () => {
+    const instances = stubAudio();
+
+    playCardPlaced();
+    playCardPlaced();
+    playCardPlaced();
+
+    expect(instances).toHaveLength(1);
+    expect(instances[0].playCalls).toBe(3);
+  });
+
+  it('survives play() rejecting, as a real browser does when autoplay is refused', () => {
+    stubAudio((src) => {
+      const el = new FakeAudio(src);
+      el.play = () => {
+        el.playCalls += 1;
+        return Promise.reject(new Error('autoplay refused'));
+      };
+      return el;
+    });
+
+    expect(() => playCardPlaced()).not.toThrow();
+  });
+
+  it('survives play() returning undefined, as jsdom does', () => {
+    stubAudio((src) => {
+      const el = new FakeAudio(src);
+      el.play = () => {
+        el.playCalls += 1;
+        return undefined;
+      };
+      return el;
+    });
+
+    expect(() => playCardDrawn()).not.toThrow();
+  });
+
+  it('unlocks both clips once, and a second call touches nothing further', () => {
+    const instances = stubAudio();
+
+    unlockSounds();
+    unlockSounds();
+
+    expect(instances).toHaveLength(2);
+    for (const el of instances) expect(el.playCalls).toBe(1);
+  });
+});
+
+describe('table sound cues', () => {
+  beforeEach(() => {
+    vi.mocked(playCardPlaced).mockClear();
+    vi.mocked(playCardDrawn).mockClear();
+  });
+
+  function stubTableView(): TableView {
+    const seated = (seat: 0 | 1, name: string): PublicPlayerView => ({
+      seat,
+      name,
+      connected: true,
+      handCount: 8,
+      expeditions: { yellow: [], blue: [], white: [], green: [], red: [] },
+      roundScores: [],
+      currentRoundScore: 0,
+    });
+    return {
+      viewer: 'table',
+      round: 1,
+      stage: 'playing',
+      deckCount: 40,
+      discardTops: { yellow: null, blue: null, white: null, green: null, red: null },
+      turn: 0,
+      phase: 'place',
+      legalDrawSources: [],
+      readyForNextRound: [false, false],
+      players: [seated(0, 'Paul'), seated(1, 'Aditi')],
+    };
+  }
+
+  // The flight animation this same handler also drives is covered in
+  // 'planning a card's journey across the table' above (flights.ts is pure
+  // and needs no rendered Table); this test is only about the sound cue,
+  // which fires unconditionally on the event, flight or no flight.
+  it('plays a sound for a placement and a draw, from either seat', () => {
+    const socket = new FakeSocket();
+    const store = createSessionStore(socket, createInMemoryRejoinStore());
+    render(
+      <SessionProvider store={store}>
+        <Table code="ABCD" />
+      </SessionProvider>,
+    );
+
+    act(() => socket.deliver({ t: 'state', view: stubTableView() }));
+
+    act(() =>
+      socket.deliver({
+        t: 'event',
+        kind: {
+          name: 'placed',
+          seat: 0,
+          card: { id: 'blue-7', colour: 'blue', value: 7 },
+          target: 'expedition',
+        },
+      }),
+    );
+    expect(playCardPlaced).toHaveBeenCalledTimes(1);
+    expect(playCardDrawn).not.toHaveBeenCalled();
+
+    act(() =>
+      socket.deliver({
+        t: 'event',
+        kind: { name: 'drew', seat: 1, source: { kind: 'deck' } },
+      }),
+    );
+    expect(playCardDrawn).toHaveBeenCalledTimes(1);
+    expect(playCardPlaced).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not sound for a round or match ending', () => {
+    const socket = new FakeSocket();
+    const store = createSessionStore(socket, createInMemoryRejoinStore());
+    render(
+      <SessionProvider store={store}>
+        <Table code="ABCD" />
+      </SessionProvider>,
+    );
+
+    act(() => socket.deliver({ t: 'state', view: stubTableView() }));
+    act(() => socket.deliver({ t: 'event', kind: { name: 'roundOver' } }));
+    act(() => socket.deliver({ t: 'event', kind: { name: 'matchOver', winner: 0 } }));
+
+    expect(playCardPlaced).not.toHaveBeenCalled();
+    expect(playCardDrawn).not.toHaveBeenCalled();
   });
 });
 

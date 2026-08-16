@@ -64,8 +64,8 @@ client/src/
                  flightPath, carry — the arithmetic of a card in the air
                  invite — the join URL, written by the tablet and read by the phone
                  seating — the one place a seat maps to the table's own top/bottom edge
-  platform/      vibrate, wakeLock, orientation, motion — the only files
-                 touching `navigator` / `screen`
+  platform/      vibrate, wakeLock, orientation, motion, sound — the only
+                 files touching `navigator` / `screen` / `Audio`
   demo/          the server, running in the browser (see below)
 ```
 

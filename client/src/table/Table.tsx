@@ -28,6 +28,7 @@ import { useWakeLock } from '../platform/wakeLock';
 import { CardFlight, Rect } from '../shared/CardFlight';
 import { edgeRect } from '../shared/flightPath';
 import { isFlipped } from '../shared/seating';
+import { playCardDrawn, playCardPlaced, unlockSounds } from '../platform/sound';
 import { Column } from './Column';
 import { ColumnMetrics, sideMetrics } from './columnMetrics';
 import { DiscardRow } from './DiscardRow';
@@ -102,6 +103,8 @@ export function Table({ code, invites }: { code: string; invites?: SeatInvite[] 
   // Cosmetic only. The next `state` is still the source of truth for
   // everything on screen; this decides nothing.
   useTableEvents((event) => {
+    if (event.name === 'placed') playCardPlaced();
+    if (event.name === 'drew') playCardDrawn();
     if (!before.current) return;
     const plan = planFlight(event, before.current);
     if (plan) pending.current = plan;
@@ -148,7 +151,7 @@ export function Table({ code, invites }: { code: string; invites?: SeatInvite[] 
   }
 
   return (
-    <div className="table">
+    <div className="table" onPointerDown={unlockSounds}>
       {/* Read from both ends, same as everything else on this screen — the
           top copy is rotated to face seat 1. */}
       {status !== 'open' && (
