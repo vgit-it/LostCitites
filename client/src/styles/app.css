@@ -317,12 +317,17 @@ button.card:not(:disabled):active {
   min-height: 0;
 }
 
+/* The score rail sits at each player's own outer edge, next to their name
+   plate, not against the discard band shared with their opponent's rail —
+   "my −20" used to sit one hairline rule away from "their −20". The column
+   still hangs from the centre-adjacent edge and grows away from it, same as
+   before; only the score rail's row moved. */
 .lane--top {
-  grid-template-rows: minmax(0, 1fr) var(--score-h);
+  grid-template-rows: var(--score-h) minmax(0, 1fr);
 }
 
 .lane--bottom {
-  grid-template-rows: var(--score-h) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) var(--score-h);
 }
 
 /* Explicit rows rather than relying on DOM order: Table.tsx renders the
@@ -330,20 +335,20 @@ button.card:not(:disabled):active {
    the right place in source order for assistive tech), which would
    otherwise auto-place it into the big row instead of the score rail. */
 .lane--top .column {
-  grid-row: 1;
+  grid-row: 2;
   /* The column hangs from the edge nearest the centre — the bottom of its
-     own 1fr row, where the score rail and the discard row sit — and grows
-     upward away from it. Matches the old .board__side--top{align-items:end}
-     this replaced, moved down one level. */
+     own 1fr row, where the discard row sits — and grows upward on screen,
+     away from it, toward the score rail and the name plate. Matches the old
+     .board__side--top{align-items:end} this replaced, moved down one level. */
   align-self: end;
 }
 
 .lane--bottom .lane__score {
-  grid-row: 1;
+  grid-row: 2;
 }
 
 .lane--bottom .column {
-  grid-row: 2;
+  grid-row: 1;
   align-self: start;
 }
 
@@ -365,9 +370,10 @@ button.card:not(:disabled):active {
 }
 
 /* Read by the player opposite: rotated to face them, and — being the row
-   nearest the discard band — placed in the second row of the lane's grid. */
+   nearest their own name plate — placed in the first row of the lane's
+   grid. */
 .lane--top .lane__score {
-  grid-row: 2;
+  grid-row: 1;
   transform: rotate(180deg);
 }
 
