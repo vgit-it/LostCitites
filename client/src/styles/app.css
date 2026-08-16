@@ -101,22 +101,24 @@
 }
 
 .card__value {
-  /* The numeral is the functional payload — it must dominate. Ink, not
-     paper: the art's centre third is deliberately pale/quiet (M9 brief), so
-     a pale numeral would lose contrast exactly where it has to read. A
-     classic serif instead of the chrome's condensed sans, and 2pt smaller
-     than the plain scaled formula. */
+  /* The numeral is the functional payload — it must read clearly, not
+     dominate the face: sized down from the original scaled formula (which
+     ran the digit nearly the full height of the card) to leave the
+     illustration actually visible behind it. Ink, not paper: the art's
+     centre third is deliberately pale/quiet (M9 brief), so a pale numeral
+     would lose contrast exactly where it has to read. A classic serif
+     instead of the chrome's condensed sans. */
   position: relative;
   color: var(--ink);
   font-family: var(--font-card-numeral);
-  font-size: calc(var(--card-width) * 0.72 - 2pt);
+  font-size: calc(var(--card-width) * 0.5);
   font-weight: 700;
   letter-spacing: -0.01em;
   text-shadow: 0 1px 3px rgb(232 227 214 / 0.7);
 }
 
 .card--wager .card__value {
-  font-size: calc(var(--card-width) * 0.5 - 2pt);
+  font-size: calc(var(--card-width) * 0.36);
 }
 
 /* Non-colour channel: a per-colour mark in the corner. Card.tsx no longer
@@ -517,7 +519,7 @@ button.card:not(:disabled):active {
    the far player's own side of the table, back to their top-left again. */
 .column__card:not(:last-child) .card__index {
   display: block;
-  font-size: calc(var(--card-width) * 0.44);
+  font-size: calc(var(--card-width) * 0.32);
   top: 0.1em;
   left: 0.16em;
 }
