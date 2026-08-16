@@ -1484,6 +1484,19 @@ button.card:not(:disabled):active {
   transform: rotate(180deg);
 }
 
+/* One-time invitation to unlock audio — see Table.tsx's needsSoundUnlock.
+   ink not warn: this isn't a problem, just a nudge. */
+.sound-prompt {
+  padding: 0.3rem;
+  background: var(--ink);
+  color: var(--paper);
+  text-align: center;
+}
+
+.sound-prompt--top {
+  transform: rotate(180deg);
+}
+
 .toast {
   width: 100%;
   padding: 0.7rem 1rem;

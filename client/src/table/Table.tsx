@@ -88,6 +88,15 @@ export function Table({ code, invites }: { code: string; invites?: SeatInvite[] 
   const [flight, setFlight] = useState<Flight | null>(null);
   /** The card being flown in, held back until it lands. */
   const [arrivingId, setArrivingId] = useState<string | null>(null);
+  /**
+   * True until the table's own screen has felt one tap. Autoplay policies
+   * gate audio.play() behind a real user gesture on the page, and the table
+   * is otherwise tap-free — every placement and draw normally arrives over
+   * the socket from a phone, never from a touch here — so without this a
+   * table that nobody ever reaches across (the reach-to-draw gesture is the
+   * only other thing that would unlock it) stays silent the whole game.
+   */
+  const [needsSoundUnlock, setNeedsSoundUnlock] = useState(true);
 
   /**
    * The view as it stood before the cue that just arrived.
@@ -146,14 +155,23 @@ export function Table({ code, invites }: { code: string; invites?: SeatInvite[] 
     if (session.getCode() !== code) session.joinTable(code);
   }, [session, code]);
 
+  function handleTablePointerDown(): void {
+    unlockSounds();
+    setNeedsSoundUnlock(false);
+  }
+
   if (!view || view.viewer !== 'table') {
     return <Waiting code={code} status={status} invites={invites} />;
   }
 
   return (
-    <div className="table" onPointerDown={unlockSounds}>
+    <div className="table" onPointerDown={handleTablePointerDown}>
       {/* Read from both ends, same as everything else on this screen — the
-          top copy is rotated to face seat 1. */}
+          top copy is rotated to face seat 1. Gone for good after the first
+          tap anywhere on the table, whether it lands here or not. */}
+      {needsSoundUnlock && (
+        <div className="sound-prompt sound-prompt--top label">🔈 Tap to enable sound</div>
+      )}
       {status !== 'open' && (
         <div className="reconnect-bar reconnect-bar--top label">Reconnecting…</div>
       )}
@@ -171,6 +189,9 @@ export function Table({ code, invites }: { code: string; invites?: SeatInvite[] 
       {view.stage === 'matchEnd' && <MatchEnd players={view.players} />}
       {status !== 'open' && (
         <div className="reconnect-bar reconnect-bar--bottom label">Reconnecting…</div>
+      )}
+      {needsSoundUnlock && (
+        <div className="sound-prompt sound-prompt--bottom label">🔈 Tap to enable sound</div>
       )}
 
       {flight && (
