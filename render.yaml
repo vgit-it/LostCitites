@@ -1,0 +1,24 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+#
+# One always-on web service: builds the client with Vite, then runs the same
+# server that already serves the LAN build, on Render's TLS-terminated
+# https://…onrender.com hostname. No database, no second service — the game
+# is intentionally in-memory only (see CLAUDE.md's Known limitations).
+#
+# Deploy: on render.com, New -> Blueprint, point it at this repo. Render
+# reads this file and creates the service below with nothing further to
+# configure. PORT is supplied by Render at runtime; server/index.ts already
+# reads process.env.PORT, so nothing here needs to set it.
+services:
+  - type: web
+    name: lost-cities
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+    # Express serves dist/client/index.html for every non-API path once
+    # built, so the default "/" health check succeeds without extra config.
+    healthCheckPath: /

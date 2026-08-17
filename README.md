@@ -32,6 +32,38 @@ npm run headless -- 12345    # replay a specific seed
 npm run typecheck
 ```
 
+## Deploying for a small group
+
+The LAN mode above needs everyone on the same network. To share a game with
+a few friends over the internet instead, host the same server (Express +
+`ws` on one port — see `server/index.ts`) somewhere it can stay running:
+
+1. On [render.com](https://render.com), **New → Blueprint**, point it at
+   this repo. `render.yaml` at the root defines the whole service — build
+   command, start command, TLS — so there is nothing else to configure.
+2. Render assigns a `https://<name>.onrender.com` URL and terminates TLS
+   for you, which `wss://` (and Wake Lock, which needs a secure context)
+   both require. Open that URL's `/table` on the shared device and `/play`
+   on each phone, same as the LAN flow — `shared/invite.ts` builds the QR
+   and join links from whatever origin the tablet is actually served from,
+   so nothing else changes.
+3. The free plan spins the service down after ~15 minutes idle and cold-starts
+   on the next request — fine between game nights, but a mid-match pause
+   longer than that ends the match the same way a server restart does
+   (state is in-memory only, per Known limitations below). Render's paid
+   Starter tier removes the spin-down if that matters more than the cost.
+
+Any other host that runs a persistent Node process behind TLS works the same
+way (Fly.io, Railway, a VPS behind Caddy/nginx) — `render.yaml` is just the
+one this repo ships config for. What doesn't work is a serverless/edge
+platform: the server holds every room's game state in one process's memory
+(`server/registry.ts`), so it needs one long-lived process, not one
+invocation per request.
+
+Rooms are never evicted once created — fine for occasional play with a
+handful of friends, but worth knowing if this ever stayed up unattended for
+a long time.
+
 ## The demo
 
 There is a second way to run this that needs no server, no install and no
