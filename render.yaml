@@ -15,15 +15,17 @@ services:
     runtime: node
     plan: free
     # npm ci, not npm install, for a reproducible build straight off the
-    # lockfile. No NODE_ENV env var here on purpose: Render exports a
-    # service's env vars during the build step too, not only at runtime, and
-    # this npm version (10.x) skips devDependencies — typescript, vite,
-    # @types/node, everything `npm run build`'s tsc/vite step needs — for
-    # *both* `npm ci` and `npm install` whenever NODE_ENV=production is set,
-    # with no way to opt back in short of removing the var. `npm start`
-    # already sets NODE_ENV=production for the running server itself
-    # (see the script below), so nothing here needs to set it too.
-    buildCommand: npm ci && npm run build
+    # lockfile. --include=dev is load-bearing, not decoration: Render sets
+    # NODE_ENV=production for every Node service by default, as a platform
+    # default outside this file's control (an explicit envVars entry here
+    # doesn't override it either — confirmed by trying that first). npm
+    # (10.x) skips devDependencies — typescript, vite, @types/node,
+    # everything `npm run build`'s tsc/vite step needs — for both `npm ci`
+    # and `npm install` whenever NODE_ENV=production is set, and --include=dev
+    # is the one thing that overrides that regardless of NODE_ENV. `npm
+    # start` still sets NODE_ENV=production for the running server itself
+    # (see the script below), same as it always did.
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
     # Express serves dist/client/index.html for every non-API path once
     # built, so the default "/" health check succeeds without extra config.
