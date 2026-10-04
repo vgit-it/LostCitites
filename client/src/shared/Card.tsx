@@ -22,6 +22,33 @@ export const COLOUR_MARK: Record<Colour, string> = {
   red: '⬢',
 };
 
+/**
+ * How a card lies on the table: a small tilt and nudge, so a played card
+ * looks dropped rather than snapped to a grid. Derived from the card's id
+ * alone (FNV-1a), so the same card always lies the same way — a re-render
+ * or a reconnect never makes it jiggle. Only the table's CSS reads these.
+ */
+export function cardLie(id: string): { tilt: number; nudgeX: number; nudgeY: number } {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  // Three independent bytes of the hash, each mapped to [-1, 1].
+  const unit = (shift: number) => (((h >>> shift) & 0xff) / 255) * 2 - 1;
+  return { tilt: unit(0) * 1.8, nudgeX: unit(8) * 2, nudgeY: unit(16) * 2 };
+}
+
+function faceStyle(card: CardModel): React.CSSProperties {
+  const lie = cardLie(card.id);
+  return {
+    '--colour': `var(--colour-${card.colour})`,
+    '--tilt': `${lie.tilt.toFixed(2)}deg`,
+    '--nudge-x': `${lie.nudgeX.toFixed(1)}px`,
+    '--nudge-y': `${lie.nudgeY.toFixed(1)}px`,
+  } as React.CSSProperties;
+}
+
 export interface CardProps {
   card: CardModel;
   size?: CardSize;
@@ -94,7 +121,7 @@ export function Card({
     return (
       <div
         className={className}
-        style={{ '--colour': `var(--colour-${card.colour})` } as React.CSSProperties}
+        style={faceStyle(card)}
         aria-label={label}
         title={title ?? label}
         // undefined, not false: a table card is not a toggle, and `false`
@@ -113,7 +140,7 @@ export function Card({
     <button
       type="button"
       className={className}
-      style={{ '--colour': `var(--colour-${card.colour})` } as React.CSSProperties}
+      style={faceStyle(card)}
       aria-label={label}
       title={title ?? label}
       // undefined, not false: a table card is not a toggle, and `false`

@@ -20,7 +20,7 @@
   font-family: var(--font-numeral);
   font-weight: 700;
   line-height: 1;
-  box-shadow: 0 1px 0 rgb(31 29 26 / 0.25);
+  box-shadow: var(--card-shadow);
   transition: transform var(--motion), box-shadow var(--motion);
   /* A card is dragged and flicked; never let it turn into a text selection
      or fire iOS's press-and-hold callout mid-gesture. */
@@ -167,7 +167,7 @@ button.card:not(:disabled):active {
    lives on the wrapper); the outline belongs to focus alone.
    Only Hand passes `selected`, so this cannot reach the table. */
 .card.is-selected {
-  box-shadow: 0 6px 14px rgb(31 29 26 / 0.35), inset 0 0 0 2px var(--paper);
+  box-shadow: var(--card-shadow-lift), inset 0 0 0 2px var(--paper);
 }
 
 .card:focus-visible {
@@ -180,12 +180,21 @@ button.card:not(:disabled):active {
   filter: saturate(0.4);
 }
 
+/* A spot printed on the board, not a drop target: a faint wash of the
+   suit's colour, a fine keyline, and its emblem in the middle — the way an
+   empty expedition space looks on the real game's board. A dashed outline
+   read as a web form's upload box. */
 .card--slot {
-  background: transparent;
-  border: 2px dashed var(--colour);
+  background: color-mix(in srgb, var(--colour) 9%, transparent);
+  border: 1.5px solid color-mix(in srgb, var(--colour) 38%, transparent);
   color: var(--colour);
-  box-shadow: none;
-  opacity: 0.45;
+  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--colour) 6%, transparent);
+}
+
+.card--slot .card__mark {
+  position: static;
+  font-size: calc(var(--card-width) * 0.42);
+  opacity: 0.35;
 }
 
 /* A card nobody has seen: what a draw off the deck looks like in flight, and
@@ -198,7 +207,20 @@ button.card:not(:disabled):active {
   background-image: url('../assets/img/CardBack.png');
   background-size: cover;
   background-position: center;
-  box-shadow: 0 2px 6px rgb(31 29 26 / 0.28);
+  box-shadow: var(--card-shadow);
+}
+
+/* Cards dropped on a real table never land square. Every card on the table
+   carries its own small tilt and nudge (--tilt, --nudge-x, --nudge-y, set by
+   Card.tsx from the card's id, so the same card always lies the same way
+   and a re-render never jiggles it). Individual transform properties, not
+   `transform`: they compose with the 180deg turn a far-seat column card
+   already carries instead of replacing it. Hand cards are left square —
+   they are held, and the hand lays them out itself. */
+.board__side .card:not(.card--slot),
+.discard-row .card:not(.card--slot) {
+  rotate: var(--tilt, 0deg);
+  translate: var(--nudge-x, 0) var(--nudge-y, 0);
 }
 
 /* Already in the state that arrived with the cue, so already on the table
@@ -217,6 +239,8 @@ button.card:not(:disabled):active {
   height: 100%;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
+  /* The containing block for the floating sound chips. */
+  position: relative;
   /* Nothing here is text to copy, and dragging across a card otherwise
      leaves a selection behind. The next press then starts a native drag of
      that selection, which arrives as a pointercancel and silently kills the
@@ -277,8 +301,10 @@ button.card:not(:disabled):active {
   /* Opaque, and above the sides: this is what the status/turn bars used to
      do for the board's outer edges before overflow: hidden on .board__side
      made it unnecessary for spillover, but a deep column's own top card can
-     still legitimately reach the band's own edge. */
-  background: var(--paper);
+     still legitimately reach the band's own edge. Transparent now: the
+     sides clip their own overflow, and an opaque paper strip across the
+     cloth read as a toolbar rather than the edge of a table. */
+  background: transparent;
 }
 
 .round-chip {
@@ -313,7 +339,7 @@ button.card:not(:disabled):active {
 .seat-plate__name {
   font-size: 0.85rem;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-variant-caps: all-small-caps;
 }
 
 .seat-plate__score {
@@ -440,9 +466,13 @@ button.card:not(:disabled):active {
 .lane__score {
   justify-self: center;
   align-self: center;
+  /* Pencilled tally, not a UI badge: italic graphite, the way the running
+     score gets jotted down beside a real game. */
   font-family: var(--font-numeral);
   font-size: 1.15rem;
-  font-weight: 700;
+  font-style: italic;
+  font-weight: 600;
+  color: #4a4438;
   line-height: 1;
   /* The rail is a fixed track; a wrapped label would eat into the column's
      own share of the band without sideMetrics() ever knowing. */
@@ -451,7 +481,7 @@ button.card:not(:disabled):active {
 }
 
 .lane__score.is-negative {
-  color: var(--danger);
+  color: #8a3a28;
 }
 
 /* Read by the player opposite: rotated to face them, and — being the row
@@ -583,16 +613,26 @@ button.card:not(:disabled):active {
 .discard-row {
   align-items: center;
   padding-block: 0.5rem;
-  border-top: 1px solid var(--rule);
-  border-bottom: 1px solid var(--rule);
-  /* Opaque, and above both sides — this is what the deleted status/turn
+  border-top: 1px solid rgb(60 45 25 / 0.25);
+  border-bottom: 1px solid rgb(60 45 25 / 0.25);
+  /* The printed centre board: a darker panel lying on the cloth, inset so
+     its edges read as a board's thickness. Rounded corners only — inline
+     padding or a side border would shear this band's grid tracks off the
+     two sides' (see .name-row above). Opaque, and above both sides — this is what the deleted status/turn
      bars used to do for the board's outer edges. No overflow clipping: the
      reach lifts a pulled card out of this band by design, all the way past
      REACH_PX and beyond (drawGesture.ts), and the lift is deliberately not
      undone on a take (see the comment in DiscardRow.tsx). */
   position: relative;
   z-index: 2;
-  background: var(--paper);
+  border-radius: 6px;
+  background:
+    linear-gradient(rgb(255 250 235 / 0.18), rgb(60 45 25 / 0.06)),
+    var(--board-panel);
+  box-shadow:
+    inset 0 1px 0 rgb(255 250 235 / 0.35),
+    inset 0 -1px 2px rgb(60 45 25 / 0.15),
+    0 1px 3px rgb(40 30 15 / 0.15);
 }
 
 /* No text, so it needs no rotation and reads identically from both seats:
@@ -604,11 +644,15 @@ button.card:not(:disabled):active {
    The turn text on the active player's own plate is still the detailed
    answer; this is the one a glance across the table also catches. */
 .discard-row--turn-top {
-  box-shadow: inset 0 3px 0 var(--ink);
+  box-shadow:
+    inset 0 3px 0 rgb(31 29 26 / 0.75),
+    0 1px 3px rgb(40 30 15 / 0.15);
 }
 
 .discard-row--turn-bottom {
-  box-shadow: inset 0 -3px 0 var(--ink);
+  box-shadow:
+    inset 0 -3px 0 rgb(31 29 26 / 0.75),
+    0 1px 3px rgb(40 30 15 / 0.15);
 }
 
 .discard-row .card {
@@ -658,7 +702,7 @@ button.card:not(:disabled):active {
 .is-reaching {
   transition: none;
   z-index: 5;
-  filter: drop-shadow(0 10px 18px rgb(31 29 26 / 0.42));
+  filter: drop-shadow(0 10px 18px rgb(40 30 15 / 0.42));
 }
 
 /* Pulled away from the seat that is drawing, so letting go will do nothing.
@@ -756,7 +800,10 @@ button.card:not(:disabled):active {
 
 .lobby__code {
   font-family: var(--font-numeral);
-  font-size: clamp(5rem, 26vw, 16rem);
+  /* Bounded by height too: it renders twice, once per seat, and on a
+     1280x800 tablet a width-only clamp pushed the near seat's name off the
+     bottom of the screen. */
+  font-size: clamp(3rem, min(26vw, 19svh), 16rem);
   font-weight: 700;
   letter-spacing: 0.08em;
   line-height: 1;
@@ -918,7 +965,7 @@ button.card:not(:disabled):active {
 .breakdown th[scope='row'],
 .match-table th[scope='row'] {
   text-align: left;
-  text-transform: uppercase;
+  font-variant-caps: all-small-caps;
   letter-spacing: 0.1em;
   font-weight: 400;
 }
@@ -1046,7 +1093,7 @@ button.card:not(:disabled):active {
   font-size: 0.95rem;
   font-weight: 700;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-variant-caps: all-small-caps;
   text-align: center;
   color: var(--ink);
   opacity: 0.45;
@@ -1387,7 +1434,7 @@ button.card:not(:disabled):active {
   font-family: var(--font-ui);
   font-size: 0.72rem;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-variant-caps: all-small-caps;
 }
 
 .hand-actions__button {
@@ -1416,7 +1463,7 @@ button.card:not(:disabled):active {
   font-family: var(--font-ui);
   font-size: 0.85rem;
   letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-variant-caps: all-small-caps;
   text-decoration: none;
   text-align: center;
   cursor: pointer;
@@ -1516,14 +1563,30 @@ button.card:not(:disabled):active {
 /* One-time invitation to unlock audio — see Table.tsx's needsSoundUnlock.
    ink not warn: this isn't a problem, just a nudge. */
 .sound-prompt {
-  padding: 0.3rem;
-  background: var(--ink);
+  /* A small chip floating at each seat's edge, not a full-width bar: out of
+     the layout entirely, so the board doesn't jump when it goes away after
+     the first touch. Tucked into the right-hand corner, clear of the seat
+     plates centred in each name row. */
+  position: absolute;
+  right: 1rem;
+  z-index: 10;
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  background: rgb(31 29 26 / 0.72);
   color: var(--paper);
   text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgb(40 30 15 / 0.25);
 }
 
 .sound-prompt--top {
+  top: 0.4rem;
   transform: rotate(180deg);
+}
+
+.sound-prompt--bottom {
+  bottom: 0.4rem;
 }
 
 .toast {

@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Card as CardModel, Colour, PlayerView, PublicPlayerView, TableView } from '@shared/types';
-import { Card, CardSlot, COLOUR_MARK } from './shared/Card';
+import { Card, CardSlot, COLOUR_MARK, cardLie } from './shared/Card';
 import { Column } from './table/Column';
 import { profilePoints } from './table/ElevationProfile';
 import { DiscardRow, deckUrgency } from './table/DiscardRow';
@@ -142,6 +142,23 @@ describe('Card', () => {
     const { container } = render(<Card card={num('blue', 7)} />);
     expect(container.querySelector('.card__index')?.textContent).toBe('7');
     expect(container.querySelector('.card__value')?.textContent).toBe('7');
+  });
+
+  it('lies the same way every time, within a small tilt and nudge', () => {
+    const ids = ['blue-7', 'red-w1', 'yellow-10', 'green-2', 'white-w3'];
+    for (const id of ids) {
+      const lie = cardLie(id);
+      expect(cardLie(id)).toEqual(lie);
+      expect(Math.abs(lie.tilt)).toBeLessThanOrEqual(1.8);
+      expect(Math.abs(lie.nudgeX)).toBeLessThanOrEqual(2);
+      expect(Math.abs(lie.nudgeY)).toBeLessThanOrEqual(2);
+    }
+    // Not all square: the point is that they differ.
+    expect(new Set(ids.map((id) => cardLie(id).tilt.toFixed(2))).size).toBeGreaterThan(1);
+
+    const { container } = render(<Card card={num('blue', 7)} />);
+    const style = (container.firstChild as HTMLElement).style;
+    expect(style.getPropertyValue('--tilt')).toBe(`${cardLie('blue-7').tilt.toFixed(2)}deg`);
   });
 
   it('leaves the colour mark to CardSlot, now that art carries the non-colour cue', () => {
