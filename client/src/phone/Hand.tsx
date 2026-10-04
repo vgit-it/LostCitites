@@ -26,7 +26,7 @@ import {
 } from '../shared/carry';
 import { Throw, armedSide, flickOutcome } from './throw';
 import { dragOf, gestureReducer, initialGesture } from './gesture';
-import { perRow } from './handRows';
+import { fanOffset, perRow } from './handRows';
 
 export interface HandProps {
   cards: CardModel[];
@@ -273,7 +273,7 @@ export function Hand({
       onPointerCancel={handlePointerUp}
       onLostPointerCapture={handleLostPointerCapture}
     >
-      {ordered.map((card) => {
+      {ordered.map((card, index) => {
         const playable = muted || (legalPlacements[card.id] ?? []).length > 0;
         const carried = card.id === carriedId;
 
@@ -290,12 +290,13 @@ export function Hand({
               .filter(Boolean)
               .join(' ')}
             style={
-              carried
-                ? ({
-                    transform: `translate3d(${carry.x.toFixed(1)}px, ${carry.y.toFixed(1)}px, 0) rotate(${carry.tilt.toFixed(2)}deg) scale(1.12)`,
-                    zIndex: 99,
-                  } as React.CSSProperties)
-                : undefined
+              {
+                '--fan-o': fanOffset(index, ordered.length),
+                ...(carried && {
+                  transform: `translate3d(${carry.x.toFixed(1)}px, ${carry.y.toFixed(1)}px, 0) rotate(${carry.tilt.toFixed(2)}deg) scale(1.12)`,
+                  zIndex: 99,
+                }),
+              } as React.CSSProperties
             }
           >
             <Card card={card} size="lg" dimmed={disabled} />

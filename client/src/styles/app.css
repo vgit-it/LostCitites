@@ -133,20 +133,31 @@
   opacity: 0.75;
 }
 
-/* The corner index exists only for a buried column card, where the one
-   played after it covers everything but a sliver too thin for the centred
-   numeral (columnMetrics.ts). Everywhere else the big numeral is the whole
-   point, and a second one would just be noise. */
+/* Corner indices on every card, as on a real one: printed in paper on the
+   suit-coloured band at the top of the face, top-left, and again turned
+   180deg at bottom-right. The top-left copy is the one that survives an
+   overlap — a fanned hand or a buried column card — and the turned copy is
+   what the far seat reads on a shared discard pile. Sized against the card
+   so it stays inside the band at every card size. */
 .card__index {
-  display: none;
   position: absolute;
-  top: 0.2rem;
-  left: 0.32rem;
-  font-family: var(--font-numeral);
-  font-size: calc(var(--card-width) * 0.3);
+  top: calc(var(--card-width) * 0.035);
+  left: calc(var(--card-width) * 0.07);
+  font-family: var(--font-card-numeral);
+  font-size: calc(var(--card-width) * 0.19);
   font-weight: 700;
   line-height: 1;
   letter-spacing: -0.02em;
+  color: var(--paper);
+  text-shadow: 0 1px 1px rgb(31 29 26 / 0.45);
+}
+
+.card__index--foot {
+  top: auto;
+  left: auto;
+  bottom: calc(var(--card-width) * 0.035);
+  right: calc(var(--card-width) * 0.07);
+  transform: rotate(180deg);
 }
 
 /* Scoped to <button>: a non-interactive card is a <div> now (Card.tsx), and
@@ -535,25 +546,18 @@ button.card:not(:disabled):active {
 
 /* In a staircase the exposed part of a buried card is its edge nearest the
    card behind it — screen-left for the bottom lane, screen-right for the
-   mirrored top one — so a buried card's corner index carries the value and
-   its big centred numeral is dropped: overlapped, it would be bisected by
-   the next card and read as a rendering fault rather than a number. The
-   last card in the stack — DOM order matches play order, so this is always
-   the most recently played, fully exposed one — needs no such trade and
-   renders exactly like a hand card: the base rules apply untouched.
+   mirrored top one — so a buried card's top-left corner index carries the
+   value and its centred numeral is dropped: overlapped, it would be
+   bisected by the next card and read as a rendering fault rather than a
+   number. The last card in the stack — DOM order matches play order, so
+   this is always the most recently played, fully exposed one — renders
+   exactly like a hand card: the base rules apply untouched.
 
    The index lives at the card's own local top-left and needs no
    lane-specific override: a top-lane card is turned 180° as a whole
    (.lane--top .column__card .card, below), which carries this same corner
    to the screen-space spot the mirrored stagger exposes — and, seen from
    the far player's own side of the table, back to their top-left again. */
-.column__card:not(:last-child) .card__index {
-  display: block;
-  font-size: calc(var(--card-width) * 0.16);
-  top: 0.1em;
-  left: 0.16em;
-}
-
 .column__card:not(:last-child) .card__value {
   display: none;
 }
@@ -1187,12 +1191,15 @@ button.card:not(:disabled):active {
    390×844 viewport in Playwright. */
 .hand {
   container-type: inline-size;
-  --hand-gap: 0.5rem;
-  --row-budget: calc((46svh - var(--hand-gap)) / 2);
+  --hand-gap: 0.4rem;
+  /* Each card overhangs its slot by this fraction of its own width. */
+  --fan-overlap: 0.24;
+  --row-budget: calc((54svh - var(--hand-gap)) / 2);
+  --slot-w: calc(100cqw / var(--per-row, 4));
   --card-w: min(
-    8rem,
+    8.5rem,
     calc(var(--row-budget) / 1.5),
-    calc((100cqw - (var(--per-row, 4) - 1) * var(--hand-gap)) / var(--per-row, 4))
+    calc(var(--slot-w) / (1 - var(--fan-overlap)))
   );
 
   position: relative;
@@ -1202,12 +1209,17 @@ button.card:not(:disabled):active {
   flex-wrap: wrap;
   flex: 1;
   align-items: center;
-  align-content: center;
+  /* Held low, near the thumbs, the way a hand of cards actually sits —
+     the open space above is the table edge a card gets thrown toward. */
+  align-content: end;
+  padding-bottom: 2.5rem;
   justify-content: center;
-  gap: var(--hand-gap);
+  /* Rows only: within a row the overlap is the spacing. */
+  row-gap: var(--hand-gap);
+  column-gap: 0;
   list-style: none;
   margin: 0;
-  padding: 0 1.25rem;
+  padding-inline: 1.25rem;
   /* A carried card leaves the row; the row must not clip it. */
   overflow: visible;
   /* A vertical drag of the row itself is not a game action in portrait —
@@ -1233,15 +1245,30 @@ button.card:not(:disabled):active {
   --card-width: var(--card-w);
 }
 
-/* In a row the whole face shows, so the big centred numeral is the one that
-   reads; the corner index would just be a second copy of it. */
-.hand .card__index {
-  display: none;
-}
+/* A fanned hand, held: each slot is narrower than the card it holds, so the
+   card overhangs it and overlaps its neighbours — the later card on top,
+   leaving every card's top-left corner index showing, which is exactly why
+   real cards carry one there. The row's wrap point is untouched because
+   the slots, not the cards, are what divide the row's width.
 
+   Each card turns and drops by its offset from the middle of its row
+   (--fan-o, from Hand.tsx), pivoting near its foot, so a row bows into a
+   gentle arc. Individual transform properties, so they compose with the
+   carry's inline transform rather than being replaced by it. */
 .hand__slot {
   flex: 0 0 auto;
-  transition: transform var(--motion), filter var(--motion), opacity var(--motion);
+  display: flex;
+  justify-content: center;
+  width: var(--slot-w);
+  transform-origin: 50% 85%;
+  rotate: calc(var(--fan-o, 0) * 3.2deg);
+  translate: 0 calc(var(--fan-o, 0) * var(--fan-o, 0) * 0.3rem);
+  transition:
+    transform var(--motion),
+    rotate var(--motion),
+    translate var(--motion),
+    filter var(--motion),
+    opacity var(--motion);
 }
 
 /* Nothing this player may do with this card right now. */
@@ -1256,10 +1283,13 @@ button.card:not(:disabled):active {
 .hand__slot.is-carried {
   transition: none;
   will-change: transform;
+  /* Straightened out of the fan once it is in the hand: the carry's own
+     tilt is the only rotation left. */
+  rotate: 0deg;
 }
 
 .hand__slot.is-carried .card {
-  box-shadow: 0 18px 34px rgb(31 29 26 / 0.42);
+  box-shadow: var(--card-shadow-lift);
 }
 
 /* The whole row goes quiet during the draw phase and the opponent's turn,

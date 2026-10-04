@@ -184,21 +184,24 @@ aligned board, §8 for the portrait phone and the carry-and-throw model.
   Anything that belongs to one of them — their name, their score, their
   expedition cards — is rotated 180° to face them if they sit at the far
   edge (`shared/seating.ts` is the one place `Seat` maps to that edge).
-  Anything that belongs to neither — the deck's remaining-card count, the
-  round counter — carries its value twice instead, once per reading
-  direction, rather than picking a side; the deck's paired
-  `deck__count`/`deck__count--far` chips are the shape that trade-off
-  takes. The discard piles are the one shared thing that picks a side
-  anyway: each shows a single upright card face, styled identically to a
-  hand card, so the far seat reads a discarded card upside-down rather than
-  the table carrying two smaller copies of it.
-- **A card looks the same everywhere it's readable at full size.** Hand
-  cards, a column's topmost card, and a discard pile's top card all render
-  with the same big centred numeral (`Card.tsx`'s `card__value`) — no
-  separate table style. Only a column card buried under the one played
-  after it, reduced to a sliver too thin for that numeral
-  (`columnMetrics.ts`), falls back to the small corner index instead
-  (`.column__card:not(:last-child)` in `app.css`).
+  Anything that belongs to neither is made to read from both ends: the
+  round counter renders once per seat, the deck's count is a single chip
+  turned 90° so it costs both seats the same head-tilt, and every card
+  carries a second corner index turned 180° — the way a real card does — so
+  the far seat reads a discarded card's value from its own end.
+- **A card looks the same everywhere, like a printed card.** Every card —
+  in the hand, in a column, on a discard pile — carries a corner index
+  top-left and a turned copy bottom-right, plus a smaller centred numeral
+  (`Card.tsx`). A column card buried under the one played after it drops
+  the centred numeral (`.column__card:not(:last-child)` in `app.css`); its
+  top-left index is what shows in the sliver (`columnMetrics.ts`). The
+  phone's hand is a fan: each slot is narrower than its card, so cards
+  overlap with the top-left index showing, and each row bows into an arc
+  (`fanOffset` in `phone/handRows.ts`).
+- **The table is a surface, not a page.** Cards lie on a linen cloth
+  (`--surface` in `tokens.css`) with a shadow, and each table card lies at
+  a small tilt seeded from its id (`cardLie` in `Card.tsx`), so it never
+  sits square and never jiggles between renders.
 
 ## Known limitations
 

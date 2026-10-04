@@ -99,11 +99,15 @@ export function Card({
           glyph stayed only on CardSlot (no art of its own to carry it). */}
       <span className="card__art" aria-hidden="true" />
       <span className="card__overlay" aria-hidden="true" />
-      {/* A corner index, the way a real card carries one. Hidden by default —
-          app.css shows it only where the centred numeral below can't
-          survive: a column card buried under the one played after it,
-          reduced to a sliver too thin for anything else (columnMetrics.ts). */}
+      {/* Corner indices, the way a real card carries them: top-left, and the
+          same again turned 180deg at bottom-right. The top-left one is what
+          survives when the card is overlapped — a fanned hand, or a column
+          card buried under the next one (columnMetrics.ts). The turned one
+          is what the far seat reads on a shared discard pile. */}
       <span className="card__index" aria-hidden="true">
+        {card.value === 'wager' ? '✦' : card.value}
+      </span>
+      <span className="card__index card__index--foot" aria-hidden="true">
         {card.value === 'wager' ? '✦' : card.value}
       </span>
       <span className="card__value">{card.value === 'wager' ? '✦' : card.value}</span>

@@ -12,7 +12,7 @@ import { profilePoints } from './table/ElevationProfile';
 import { DiscardRow, deckUrgency } from './table/DiscardRow';
 import { MatchEnd, PlayerBreakdown, RoundEnd } from './table/RoundEnd';
 import { Hand, drawnCardId, sortHand } from './phone/Hand';
-import { perRow } from './phone/handRows';
+import { fanOffset, perRow } from './phone/handRows';
 import {
   FLICK_V,
   MAX_TILT_DEG,
@@ -135,12 +135,12 @@ describe('Card', () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 
-  it('carries a corner index alongside the big numeral', () => {
-    // Both are in the DOM on every card; CSS shows the index only on a
-    // buried column card. Note this means a numeral matches twice — use
-    // getAllByText.
+  it('carries two corner indices alongside the centred numeral, like a real card', () => {
+    // A numeral matches three times on every card — use getAllByText.
     const { container } = render(<Card card={num('blue', 7)} />);
-    expect(container.querySelector('.card__index')?.textContent).toBe('7');
+    const indices = container.querySelectorAll('.card__index');
+    expect([...indices].map((el) => el.textContent)).toEqual(['7', '7']);
+    expect(indices[1].classList.contains('card__index--foot')).toBe(true);
     expect(container.querySelector('.card__value')?.textContent).toBe('7');
   });
 
@@ -389,6 +389,15 @@ describe('how the hand wraps into rows', () => {
     expect(perRow(6)).toBe(3);
     expect(perRow(7)).toBe(4);
     expect(perRow(8)).toBe(4);
+  });
+
+  it('fans each row around its own middle', () => {
+    // Eight cards: two rows of four, each running -1.5 .. 1.5.
+    expect([0, 1, 2, 3].map((i) => fanOffset(i, 8))).toEqual([-1.5, -0.5, 0.5, 1.5]);
+    expect([4, 5, 6, 7].map((i) => fanOffset(i, 8))).toEqual([-1.5, -0.5, 0.5, 1.5]);
+    // Seven: four then three, the second row centred on its middle card.
+    expect([4, 5, 6].map((i) => fanOffset(i, 7))).toEqual([-1, 0, 1]);
+    expect(fanOffset(0, 1)).toBe(0);
   });
 
   it('never divides by zero for an empty hand', () => {
