@@ -20,8 +20,8 @@ export function JoinCode({ url, label }: { url: string; label: string }) {
       shapeRendering="crispEdges"
     >
       <title>{label}</title>
-      <rect width={size} height={size} fill="var(--paper)" />
-      <path d={d} fill="var(--ink)" />
+      <rect width={size} height={size} fill="var(--qr-paper)" />
+      <path d={d} fill="var(--qr-ink)" />
     </svg>
   );
 }

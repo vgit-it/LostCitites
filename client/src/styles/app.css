@@ -139,7 +139,7 @@
 
 .card__rung {
   font-size: calc(var(--card-width) * 0.062);
-  color: var(--paper);
+  color: var(--card-light);
   opacity: 0.6;
 }
 
@@ -275,7 +275,7 @@ button.card:not(:disabled):active {
    lives on the wrapper); the outline belongs to focus alone.
    Only Hand passes `selected`, so this cannot reach the table. */
 .card.is-selected {
-  box-shadow: var(--card-shadow-lift), inset 0 0 0 2px var(--paper);
+  box-shadow: var(--card-shadow-lift), inset 0 0 0 2px var(--card-stock);
 }
 
 .card:focus-visible {
@@ -313,11 +313,21 @@ button.card:not(:disabled):active {
 .card--back {
   width: var(--card-width);
   aspect-ratio: 2 / 3;
-  border-radius: var(--radius);
-  background-image: url('../assets/img/CardBack.png');
-  background-size: cover;
-  background-position: center;
-  box-shadow: var(--card-shadow);
+  border-radius: calc(var(--card-width) * 0.065);
+  /* The Field Journal back: parchment, an engraved compass rose, a double
+     rule in ink — the face's own vocabulary turned over, so the deck belongs
+     to the same set as the cards dealt from it. The rules are stacked inset
+     shadows, each later one showing as a 1px ring past the one above it. */
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='%234a3d2c' stroke-width='1.2'%3E%3Ccircle cx='50' cy='50' r='40'/%3E%3Ccircle cx='50' cy='50' r='33' stroke-width='0.6'/%3E%3Cpath d='M50 4 L57 43 L96 50 L57 57 L50 96 L43 57 L4 50 L43 43 Z' fill='%234a3d2c' fill-opacity='0.12'/%3E%3Cpath d='M50 18 L54 46 L82 50 L54 54 L50 82 L46 54 L18 50 L46 46 Z' fill='%234a3d2c' fill-opacity='0.35'/%3E%3C/svg%3E")
+      center / 76% auto no-repeat,
+    #e9dfc6;
+  box-shadow:
+    var(--card-shadow),
+    inset 0 0 0 calc(var(--card-width) * 0.05) #e9dfc6,
+    inset 0 0 0 calc(var(--card-width) * 0.05 + 1px) #4a3d2c,
+    inset 0 0 0 calc(var(--card-width) * 0.08) #e9dfc6,
+    inset 0 0 0 calc(var(--card-width) * 0.08 + 1px) rgb(74 61 44 / 0.5);
 }
 
 /* Cards dropped on a real table never land square. Every card on the table
@@ -582,7 +592,7 @@ button.card:not(:disabled):active {
   font-size: 1.15rem;
   font-style: italic;
   font-weight: 600;
-  color: #4a4438;
+  color: var(--pencil);
   line-height: 1;
   /* The rail is a fixed track; a wrapped label would eat into the column's
      own share of the band without sideMetrics() ever knowing. */
@@ -591,7 +601,7 @@ button.card:not(:disabled):active {
 }
 
 .lane__score.is-negative {
-  color: #8a3a28;
+  color: var(--pencil-negative);
 }
 
 /* Read by the player opposite: rotated to face them, and — being the row
@@ -748,13 +758,13 @@ button.card:not(:disabled):active {
    answer; this is the one a glance across the table also catches. */
 .discard-row--turn-top {
   box-shadow:
-    inset 0 3px 0 rgb(31 29 26 / 0.75),
+    inset 0 3px 0 var(--turn-accent),
     0 1px 3px rgb(40 30 15 / 0.15);
 }
 
 .discard-row--turn-bottom {
   box-shadow:
-    inset 0 -3px 0 rgb(31 29 26 / 0.75),
+    inset 0 -3px 0 var(--turn-accent),
     0 1px 3px rgb(40 30 15 / 0.15);
 }
 
@@ -815,12 +825,12 @@ button.card:not(:disabled):active {
   filter: grayscale(0.6);
 }
 
-/* A short stack of backs with the count over it, in the gutter track. The
-   explicit width and aspect-ratio are not decoration: rectOf() (Table.tsx)
-   discards any anchor whose width comes out 0, and a deck-draw flight would
-   then silently stop happening. The leaves are offset by transform only, so
-   however many there are, the anchor box — this element — stays exactly
-   the size of the top card. */
+/* A short stack of backs with the count banded round it, in the gutter
+   track. The explicit width and aspect-ratio are not decoration: rectOf()
+   (Table.tsx) discards any anchor whose width comes out 0, and a deck-draw
+   flight would then silently stop happening. The leaves are offset by
+   transform only, so however many there are, the anchor box — this
+   element — stays exactly the size of the top card. */
 .deck {
   position: relative;
   display: grid;
@@ -834,42 +844,115 @@ button.card:not(:disabled):active {
   grid-area: 1 / 1;
 }
 
-/* Behind the top card, stepped up and left. Purely cosmetic depth — the
-   count is the only thing that actually reads at a glance. */
+/* Behind the top card, stepped up and left: the edges of the cards under
+   it, so the stack reads as a stack. */
 .deck__leaf {
   transform: translate(calc(var(--d, 0) * -0.16rem), calc(var(--d, 0) * -0.16rem));
-  opacity: 0.7;
+  filter: brightness(0.94);
 }
 
-/* One chip, centred on the deck's top card via .deck's own place-items:
-   center, and turned sideways rather than upright toward either seat — the
-   deck sits between both same as the discard piles, so a chip that faced
-   one of them would read upside-down to the other. Rotated 90deg it costs
-   both seats the same head-tilt instead of favouring one. */
+/* The count, printed on a paper band wrapped lengthwise round the deck the
+   way a new deck comes banded. Lengthwise because the deck sits between both
+   seats: text running along the band reads sideways to both of them alike,
+   rather than upright to one and upside-down to the other. vertical-rl does
+   the turn, so no transform fights the band's own layout. The band's colour
+   is the urgency: ink, then amber, then red as the round runs out. */
 .deck__count {
   grid-area: 1 / 1;
   z-index: 1;
-  transform: rotate(90deg);
-  padding: 0.08em 0.3em;
-  border-radius: var(--radius);
-  font-family: var(--font-numeral);
-  font-size: calc(var(--pile-w) * 0.52);
+  align-self: stretch;
+  justify-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35em;
+  width: calc(var(--pile-w) * 0.3);
+  margin-block: -1px;
+  writing-mode: vertical-rl;
+  background: #3b3226;
+  color: var(--card-light);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.12), 0 1px 3px rgb(0 0 0 / 0.3);
+  transition: background var(--motion);
+}
+
+.deck__count-n {
+  font-family: var(--font-card-numeral);
   font-weight: 700;
+  font-size: calc(var(--pile-w) * 0.24);
   line-height: 1;
-  /* A chip, not coloured text: --warn/--danger read fine as ink on --paper,
-     but not against the striped ink-coloured back this now sits on. */
-  background: var(--paper);
-  color: var(--ink);
+}
+
+.deck__count-left {
+  font-family: var(--font-card-caps);
+  font-size: calc(var(--pile-w) * 0.12);
+  letter-spacing: 0.16em;
+  line-height: 1;
 }
 
 .deck--low .deck__count {
-  background: var(--warn);
-  color: var(--paper);
+  background: #a8731b;
 }
 
 .deck--critical .deck__count {
-  background: var(--danger);
-  color: var(--paper);
+  background: #a3271a;
+}
+
+/* ---- the cloth corner: turning the table over to night and back ---- */
+
+/* The top-right corner of the cloth, folded back to show its other side.
+   Pulled diagonally in toward the middle of the table, the fold follows the
+   finger (--fold, set by ClothCorner.tsx); past the threshold, the whole
+   cloth turns over. A directional pull, like the reach for a card — the only
+   kind of input this display takes — so a lean or a brush cannot turn it.
+   Two halves of one square: the lifted corner's shadow above the diagonal,
+   the folded flap below it. */
+.cloth-corner {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 20;
+  width: var(--fold, 2.75rem);
+  height: var(--fold, 2.75rem);
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+  transition: width var(--motion), height var(--motion);
+}
+
+.cloth-corner.is-peeling {
+  transition: none;
+  cursor: grabbing;
+}
+
+.cloth-corner::before,
+.cloth-corner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+.cloth-corner::before {
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+  background: rgb(0 0 0 / 0.35);
+}
+
+.cloth-corner::after {
+  clip-path: polygon(0 0, 100% 100%, 0 100%);
+  background: var(--cloth-underside);
+  filter: drop-shadow(-3px 3px 4px rgb(0 0 0 / 0.35));
+}
+
+.cloth-corner:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: -3px;
+}
+
+/* At night the cards are dimmed a touch so they do not glare off a dark
+   table; on the tablet only, which sets data-theme itself. */
+:root[data-theme='night'] .board {
+  filter: brightness(0.93);
 }
 
 /* ---------- shared screens ---------- */
@@ -982,7 +1065,7 @@ button.card:not(:disabled):active {
   width: clamp(7rem, 18vh, 11rem);
   height: clamp(7rem, 18vh, 11rem);
   padding: 0.5rem;
-  background: var(--paper-dim);
+  background: var(--qr-paper);
   border: 1px solid var(--rule);
   border-radius: var(--radius);
 }
@@ -1727,7 +1810,7 @@ button.card:not(:disabled):active {
 .reconnect-bar {
   padding: 0.3rem;
   background: var(--warn);
-  color: var(--paper);
+  color: var(--card-light);
   text-align: center;
 }
 
@@ -1748,7 +1831,7 @@ button.card:not(:disabled):active {
   padding: 0.3rem 0.8rem;
   border-radius: 999px;
   background: rgb(31 29 26 / 0.72);
-  color: var(--paper);
+  color: var(--card-light);
   text-align: center;
   white-space: nowrap;
   pointer-events: none;
@@ -1757,6 +1840,8 @@ button.card:not(:disabled):active {
 
 .sound-prompt--top {
   top: 0.4rem;
+  /* Clear of the cloth corner folded back in this corner (ClothCorner.tsx). */
+  right: 4.5rem;
   transform: rotate(180deg);
 }
 
@@ -1770,7 +1855,7 @@ button.card:not(:disabled):active {
   border: none;
   border-radius: var(--radius);
   background: var(--danger);
-  color: var(--paper);
+  color: var(--card-light);
   font-family: var(--font-ui);
   font-size: 0.85rem;
   text-align: left;

@@ -168,12 +168,12 @@ export function DiscardRow({
           />
         ))}
         {deckCount > 0 && <div className="card card--back" aria-hidden="true" />}
-        {/* One chip, turned sideways rather than upright toward either end —
-            the deck sits between both seats same as the discard piles, and
-            a chip that faced one of them would read upside-down to the
-            other. Rotated 90deg it is equally a head-tilt for both. */}
+        {/* The count on a paper band wrapped lengthwise round the deck, the
+            way a new deck comes banded. Lengthwise, so it reads sideways to
+            both seats alike rather than upright to one of them. */}
         <span className="deck__count" aria-hidden="true">
-          {deckCount}
+          <span className="deck__count-n">{deckCount}</span>
+          <span className="deck__count-left">left</span>
         </span>
         <span className="sr-only">{deckCount} cards left in the deck</span>
       </div>

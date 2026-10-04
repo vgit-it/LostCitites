@@ -25,11 +25,13 @@ import {
   useTableEvents,
 } from '../session/useSession';
 import { EASE, FLIGHT_MS, animate } from '../platform/motion';
+import { useTableTheme } from '../platform/theme';
 import { useWakeLock } from '../platform/wakeLock';
 import { CardFlight, Rect } from '../shared/CardFlight';
 import { edgeOfSeat, edgeRect } from '../shared/flightPath';
 import { isFlipped } from '../shared/seating';
 import { playCardDrawn, playCardPlaced, unlockSounds } from '../platform/sound';
+import { ClothCorner } from './ClothCorner';
 import { Column } from './Column';
 import { ColumnMetrics, sideMetrics } from './columnMetrics';
 import { DiscardRow } from './DiscardRow';
@@ -108,6 +110,7 @@ export function Table({ code, invites }: { code: string; invites?: SeatInvite[] 
   const view = useClientView();
   const status = useConnectionStatus();
   useWakeLock();
+  const [theme, turnCloth] = useTableTheme();
 
   const [flight, setFlight] = useState<Flight | null>(null);
   /** The deal in progress, one back per card dealt. */
@@ -218,6 +221,7 @@ export function Table({ code, invites }: { code: string; invites?: SeatInvite[] 
 
   return (
     <div className="table" onPointerDown={handleTablePointerDown}>
+      <ClothCorner theme={theme} onTurn={turnCloth} />
       {/* Read from both ends, same as everything else on this screen — the
           top copy is rotated to face seat 1. Gone for good after the first
           tap anywhere on the table, whether it lands here or not. */}

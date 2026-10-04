@@ -1534,7 +1534,7 @@ describe('the discard row', () => {
     expect(deck?.querySelectorAll('.card--back').length).toBeGreaterThan(0);
     // Capped at 3 for depth, however many cards are actually left.
     expect(deck?.querySelectorAll('.card--back').length).toBeLessThanOrEqual(3);
-    expect(deck?.querySelector('.deck__count')?.textContent).toBe('44');
+    expect(deck?.querySelector('.deck__count-n')?.textContent).toBe('44');
     expect(deck?.className).toContain('deck--normal');
   });
 
@@ -1543,7 +1543,7 @@ describe('the discard row', () => {
 
     const deck = container.querySelector('[data-deck]');
     expect(deck?.querySelectorAll('.card--back').length).toBe(0);
-    expect(deck?.querySelector('.deck__count')?.textContent).toBe('0');
+    expect(deck?.querySelector('.deck__count-n')?.textContent).toBe('0');
     expect(deck?.className).toContain('deck--critical');
   });
 

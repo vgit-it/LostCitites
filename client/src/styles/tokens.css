@@ -64,6 +64,24 @@
   --font-card-caps: 'IM Fell English SC', 'Iowan Old Style', Palatino, Georgia, serif;
   /* The parchment a card is printed on, and the cartouches' fill. */
   --card-stock: #efe6d0;
+  /* Light print on a coloured ground — the ladder's idle rungs, the alert
+     chips' text. Fixed in both themes: it sits on its own coloured ground,
+     never on the cloth. */
+  --card-light: #f3ead4;
+  /* A QR has to stay dark-on-light in both themes or phones stop scanning
+     it, so it has its own pair rather than borrowing --ink and --paper. */
+  --qr-paper: #efe6d0;
+  --qr-ink: #1f1d1a;
+
+  /* Chrome that sits straight on the cloth and so must flip with it. */
+  --pencil: #4a4438;
+  --pencil-negative: #8a3a28;
+  --turn-accent: rgb(31 29 26 / 0.75);
+  /* The other side of the cloth, shown in the folded-back corner that turns
+     the table over (ClothCorner.tsx): slate by day, linen by night. */
+  --cloth-underside:
+    repeating-linear-gradient(0deg, rgb(255 255 255 / 0.03) 0 1px, transparent 1px 4px),
+    linear-gradient(135deg, #2b3037, #1b1e23);
 
   --radius: 4px;
   --motion: 180ms cubic-bezier(0.2, 0.7, 0.3, 1);
@@ -73,6 +91,63 @@
      Mirrored by FLIGHT_MS in client/src/platform/motion.ts, which is the
      source of truth — WAAPI cannot read a CSS custom property. */
   --motion-flight: 260ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+/* ---------- night: the Ink slate cloth ----------
+
+   Only the cloth and the chrome lying on it change; the cards are printed
+   objects and stay parchment. The tablet sets data-theme itself, from the
+   cloth corner it was last turned over with (platform/theme.ts), falling
+   back to the device's dark-mode setting. A phone sets nothing and simply
+   follows its device — the media query below. The two blocks hold the same
+   values; CSS has no way to share one declaration list between a selector
+   and a media query. */
+:root[data-theme='night'] {
+  --surface: #1b1e23;
+  --surface-weave:
+    radial-gradient(ellipse at 50% 45%, rgb(200 210 230 / 0.07), transparent 60%),
+    radial-gradient(ellipse at 50% 50%, transparent 50%, rgb(0 0 0 / 0.5) 100%),
+    repeating-linear-gradient(0deg, rgb(255 255 255 / 0.025) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, rgb(0 0 0 / 0.1) 0 1px, transparent 1px 4px);
+  --board-panel: #252a31;
+  --ink: #d9d4c8;
+  --paper: #23272d;
+  --paper-dim: #2b3037;
+  --rule: #4a505a;
+  --card-shadow: 0 1px 1px rgb(0 0 0 / 0.45), 0 4px 10px rgb(0 0 0 / 0.45);
+  --card-shadow-lift: 0 4px 6px rgb(0 0 0 / 0.4), 0 12px 24px rgb(0 0 0 / 0.5);
+  --pencil: #b9b3a6;
+  --pencil-negative: #e08c74;
+  --turn-accent: #d9d4c8;
+  --cloth-underside:
+    repeating-linear-gradient(0deg, rgb(255 250 235 / 0.05) 0 1px, transparent 1px 4px),
+    linear-gradient(135deg, #e6dcc4, #cfc3a8);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='day']) {
+    --surface: #1b1e23;
+    --surface-weave:
+      radial-gradient(ellipse at 50% 45%, rgb(200 210 230 / 0.07), transparent 60%),
+      radial-gradient(ellipse at 50% 50%, transparent 50%, rgb(0 0 0 / 0.5) 100%),
+      repeating-linear-gradient(0deg, rgb(255 255 255 / 0.025) 0 1px, transparent 1px 4px),
+      repeating-linear-gradient(90deg, rgb(0 0 0 / 0.1) 0 1px, transparent 1px 4px);
+    --board-panel: #252a31;
+    --ink: #d9d4c8;
+    --paper: #23272d;
+    --paper-dim: #2b3037;
+    --rule: #4a505a;
+    --card-shadow: 0 1px 1px rgb(0 0 0 / 0.45), 0 4px 10px rgb(0 0 0 / 0.45);
+    --card-shadow-lift: 0 4px 6px rgb(0 0 0 / 0.4), 0 12px 24px rgb(0 0 0 / 0.5);
+    --pencil: #b9b3a6;
+    --pencil-negative: #e08c74;
+    --turn-accent: #d9d4c8;
+    --cloth-underside:
+      repeating-linear-gradient(0deg, rgb(255 250 235 / 0.05) 0 1px, transparent 1px 4px),
+      linear-gradient(135deg, #e6dcc4, #cfc3a8);
+    color-scheme: dark;
+  }
 }
 
 *,
