@@ -144,6 +144,20 @@ describe('Card', () => {
     expect(container.querySelector('.card__value')?.textContent).toBe('7');
   });
 
+  it('lights its own rung on the ascent ladder and names its expedition', () => {
+    const { container } = render(<Card card={num('blue', 7)} />);
+    const rungs = [...container.querySelectorAll('.card__rung')].map((r) => r.textContent);
+    expect(rungs).toEqual(['2', '3', '4', '5', '6', '7', '8', '9', '10']);
+    expect(container.querySelector('.card__rung.is-on')?.textContent).toBe('7');
+    expect(container.querySelector('.card__name')?.textContent).toBe('The Deep');
+  });
+
+  it('gives a wager a bare ladder and a wager ribbon', () => {
+    const { container } = render(<Card card={{ id: 'red-w1', colour: 'red', value: 'wager' }} />);
+    expect(container.querySelectorAll('.card__rung')).toHaveLength(0);
+    expect(container.querySelector('.card__name')?.textContent).toBe('Wager');
+  });
+
   it('lies the same way every time, within a small tilt and nudge', () => {
     const ids = ['blue-7', 'red-w1', 'yellow-10', 'green-2', 'white-w3'];
     for (const id of ids) {

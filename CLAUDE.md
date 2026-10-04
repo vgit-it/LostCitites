@@ -196,10 +196,15 @@ aligned board, §8 for the portrait phone and the carry-and-throw model.
   turned 90° so it costs both seats the same head-tilt, and every card
   carries a second corner index turned 180° — the way a real card does — so
   the far seat reads a discarded card's value from its own end.
-- **A card looks the same everywhere, like a printed card.** Every card —
-  in the hand, in a column, on a discard pile — carries a corner index
-  top-left and a turned copy bottom-right, plus a smaller centred numeral
-  (`Card.tsx`). A column card buried under the one played after it drops
+- **A card looks the same everywhere, like a printed card.** The face is
+  the "Field Journal" design: the suit's engraving filling a parchment
+  card inside a double rule in the suit's ink, an ascent ladder (2 at the
+  foot to 10 at the head, this card's rung lit) down the left edge in the
+  suit's colour, oval cartouches with the index top-left and turned
+  bottom-right, and a centred numeral with the expedition's name under it
+  (`Card.tsx`, sized entirely as fractions of `--card-width` in
+  `app.css`). Numerals are Playfair Display (lining figures), the small
+  capitals IM Fell English SC, both self-hosted via `@fontsource`. A column card buried under the one played after it drops
   the centred numeral (`.column__card:not(:last-child)` in `app.css`); its
   top-left index is what shows in the sliver (`columnMetrics.ts`). The
   phone's hand is a fan: each slot is narrower than its card, so cards
@@ -215,7 +220,8 @@ aligned board, §8 for the portrait phone and the carry-and-throw model.
 - Wake Lock needs a secure context; over plain `http://192.168.x.x` screens
   can sleep (vibrate-on-turn still fires).
 - State is in-memory only — restarting the server ends the match.
-- Card art (the M9 illustrated background plates and the suit-tinted
-  `Card_Overlay`) lives in `client/src/assets/img/`, wired through
+- Card art (the M9 illustrated background plates; `Card_Overlay.png` is no
+  longer used by the Field Journal face) lives in `client/src/assets/img/`,
+  wired through
   `client/src/shared/Card.tsx`'s class list and its CSS in `app.css` — still
   the one file/its stylesheet, nothing else needs to know a card has art.
