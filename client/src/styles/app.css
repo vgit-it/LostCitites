@@ -5,22 +5,35 @@
 
 /* ---------- cards ---------- */
 
+/* The Field Journal face (the card design options canvas, A with B's
+   ladder): an expedition engraving filling a parchment card inside a
+   double rule in the suit's ink, an ascent ladder down the left edge in the
+   suit's colour, oval cartouches carrying the index at two corners, and a
+   big engraved numeral in the plate's quiet middle with the expedition's
+   name under it. Every measure is a fraction of --card-width, so the one
+   face scales from a discard pile to a hand card without a second style.
+
+   overflow: hidden clips the art and the ladder to the card's own rounded
+   corners. */
 .card {
   --card-width: 4.5rem;
+  --strip: calc(var(--card-width) * 0.18);
+  --hairline: max(1px, calc(var(--card-width) * 0.008));
   position: relative;
-  display: grid;
-  place-items: center;
+  display: block;
   width: var(--card-width);
   aspect-ratio: 2 / 3;
   padding: 0;
   border: none;
-  border-radius: var(--radius);
-  background: var(--colour, var(--rule));
-  color: var(--paper);
-  font-family: var(--font-numeral);
+  border-radius: calc(var(--card-width) * 0.065);
+  overflow: hidden;
+  background: var(--card-stock);
+  color: var(--suit-ink, var(--ink));
+  font-family: var(--font-card-numeral);
   font-weight: 700;
+  font-variant-numeric: lining-nums;
   line-height: 1;
-  box-shadow: 0 1px 0 rgb(31 29 26 / 0.25);
+  box-shadow: var(--card-shadow);
   transition: transform var(--motion), box-shadow var(--motion);
   /* A card is dragged and flicked; never let it turn into a text selection
      or fire iOS's press-and-hold callout mid-gesture. */
@@ -44,109 +57,204 @@
    Vite hashes and rewrites these through the same asset pipeline as a JS
    import, base path included, so nothing needs wiring in Card.tsx. */
 .card--yellow {
+  --suit-ink: #7d5512;
   --card-general: url('../assets/img/Suit_1_General.png');
   --card-wager-art: url('../assets/img/Suit_1_Wager.png');
 }
 .card--blue {
+  --suit-ink: #174a5c;
   --card-general: url('../assets/img/Suit_2_General.png');
   --card-wager-art: url('../assets/img/Suit_2_Wager.png');
 }
 .card--white {
+  --suit-ink: #465260;
   --card-general: url('../assets/img/Suit_3_General.png');
   --card-wager-art: url('../assets/img/Suit_3_Wager.png');
 }
 .card--green {
+  --suit-ink: #21492f;
   --card-general: url('../assets/img/Suit_4_General.png');
   --card-wager-art: url('../assets/img/Suit_4_Wager.png');
 }
 .card--red {
+  --suit-ink: #7f2c1b;
   --card-general: url('../assets/img/Suit_5_General.png');
   --card-wager-art: url('../assets/img/Suit_5_Wager.png');
 }
 
+/* The plates are square and the card is 2:3, so cover keeps their full
+   height — the scene along the top and the scene along the bottom — and
+   gives up only the sides. The quiet parchment middle is where the numeral
+   sits. */
 .card__art {
   position: absolute;
   inset: 0;
-  border-radius: inherit;
   background-image: var(--card-general);
-  /* Fit the card's width exactly and centre on both axes, rather than
-     cropping to cover — the plates are square, the card is 2:3, so a
-     cover fit was cutting off the top and bottom of every illustration. */
-  background-size: 100% auto;
-  background-position: center center;
+  background-size: cover;
+  background-position: center;
   background-repeat: no-repeat;
 }
 
+/* A wager's plate is a framed certificate; zoomed in to its handshake
+   medallion so the card does not read as a frame inside a frame. */
 .card--wager .card__art {
   background-image: var(--card-wager-art);
+  background-size: auto 140%;
 }
 
-/* Card_Overlay.png is a single flat-grey asset (solid fill, fully transparent
-   elsewhere) shared by every suit — mask + background-color recolours it to
-   this card's own --colour, the same custom property the base .card rule
-   already sets. A rounded element's own background/mask clips to its own
-   border-radius in every supported browser, so nothing here needs
-   overflow: hidden. */
-.card__overlay {
+/* The double rule: an outer line in the suit's ink and a fainter inner one,
+   inset from the art area (everything right of the ladder). */
+.card__frame {
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background-color: var(--colour);
-  -webkit-mask-image: url('../assets/img/Card_Overlay.png');
-  mask-image: url('../assets/img/Card_Overlay.png');
-  -webkit-mask-size: cover;
-  mask-size: cover;
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
+  inset: calc(var(--card-width) * 0.04);
+  left: calc(var(--strip) + var(--card-width) * 0.04);
+  border: var(--hairline) solid var(--suit-ink);
+  border-radius: calc(var(--card-width) * 0.035);
+  box-shadow:
+    inset 0 0 0 calc(var(--card-width) * 0.018) rgb(239 230 208 / 0.35),
+    inset 0 0 0 calc(var(--card-width) * 0.018 + var(--hairline))
+      color-mix(in srgb, var(--suit-ink) 45%, transparent);
+  pointer-events: none;
+}
+
+/* The ascent ladder: 2 at the foot, 10 at the head, this card's rung lit.
+   Its head is left clear for the top-left cartouche, which sits on it. */
+.card__ladder {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--strip);
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: space-between;
+  align-items: center;
+  padding: calc(var(--card-width) * 0.3) 0 calc(var(--card-width) * 0.07);
+  box-sizing: border-box;
+  background:
+    linear-gradient(90deg, rgb(255 250 235 / 0.1), rgb(0 0 0 / 0.08)),
+    var(--colour);
+  box-shadow: inset -1px 0 0 rgb(0 0 0 / 0.2);
+}
+
+.card__rung {
+  font-size: calc(var(--card-width) * 0.062);
+  color: var(--card-light);
+  opacity: 0.6;
+}
+
+.card__rung.is-on {
+  display: grid;
+  place-items: center;
+  width: calc(var(--card-width) * 0.135);
+  height: calc(var(--card-width) * 0.135);
+  border-radius: 50%;
+  background: var(--card-stock);
+  color: var(--suit-ink);
+  font-size: calc(var(--card-width) * 0.085);
+  opacity: 1;
+}
+
+/* The corner cartouches: an oval plate in the suit's ink, top-left (sitting
+   on the head of the ladder) and again turned 180deg at bottom-right. The
+   top-left one is what a buried column card's sliver and a fanned hand
+   leave showing; the turned one is what the far seat reads. */
+.card__index {
+  position: absolute;
+  top: calc(var(--card-width) * 0.035);
+  left: calc(var(--card-width) * 0.012);
+  display: grid;
+  place-items: center;
+  width: calc(var(--card-width) * 0.156);
+  height: calc(var(--card-width) * 0.21);
+  border: var(--hairline) solid var(--suit-ink);
+  border-radius: 50%;
+  background: var(--card-stock);
+  color: var(--suit-ink);
+  font-size: calc(var(--card-width) * 0.12);
+  letter-spacing: -0.04em;
+  box-shadow: 0 1px 2px rgb(31 29 26 / 0.3);
+}
+
+.card__index--foot {
+  top: auto;
+  left: auto;
+  bottom: calc(var(--card-width) * 0.035);
+  right: calc(var(--card-width) * 0.045);
+  transform: rotate(180deg);
+}
+
+/* The engraved numeral in the plate's quiet middle, the expedition's name
+   under it. A soft parchment halo keeps it clear of the engraving's lines.
+   --numeral-scale is the one knob for how big it reads. */
+.card__centre {
+  position: absolute;
+  left: var(--strip);
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--card-width) * 0.02);
+  color: var(--suit-ink);
 }
 
 .card__value {
-  /* The numeral is the functional payload — it must read clearly, not
-     dominate the face: sized well down from the original scaled formula
-     (which ran the digit nearly the full height of the card) to leave the
-     illustration actually visible behind it. Ink, not paper: the art's
-     centre third is deliberately pale/quiet (M9 brief), so a pale numeral
-     would lose contrast exactly where it has to read. A classic serif
-     instead of the chrome's condensed sans. */
-  position: relative;
-  color: var(--ink);
-  font-family: var(--font-card-numeral);
-  font-size: calc(var(--card-width) * 0.25);
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  text-shadow: 0 1px 3px rgb(232 227 214 / 0.7);
+  font-size: calc(var(--card-width) * var(--numeral-scale, 0.36));
+  line-height: 0.9;
+  text-shadow:
+    0 0 calc(var(--card-width) * 0.04) rgb(239 230 208 / 0.95),
+    0 0 calc(var(--card-width) * 0.015) rgb(239 230 208 / 0.95);
 }
 
+.card__name {
+  font-family: var(--font-card-caps);
+  font-weight: 400;
+  font-size: calc(var(--card-width) * 0.062);
+  letter-spacing: 0.18em;
+  white-space: nowrap;
+  text-shadow: 0 0 calc(var(--card-width) * 0.02) rgb(239 230 208 / 0.95);
+}
+
+/* A wager shows its medallion, not a numeral: the name becomes a small
+   ribbon at the foot of the plate. */
 .card--wager .card__value {
-  font-size: calc(var(--card-width) * 0.18);
+  display: none;
 }
 
-/* Non-colour channel: a per-colour mark in the corner. Card.tsx no longer
-   renders this — every populated card now carries its own illustrated
-   scene, which is the non-colour cue. CardSlot is the one thing left that
-   still needs it: an empty slot has no art, only a flat colour fill. */
+.card--wager .card__centre {
+  top: auto;
+  bottom: calc(var(--card-width) * 0.1);
+  transform: none;
+}
+
+.card--wager .card__name {
+  padding: 0.25em 0.8em;
+  border: var(--hairline) solid var(--suit-ink);
+  border-radius: calc(var(--card-width) * 0.02);
+  background: var(--card-stock);
+  font-size: calc(var(--card-width) * 0.07);
+}
+
+/* The discard piles are the smallest faces in the game: they keep the
+   cartouches, the lit rung and the numeral, and drop what would only be
+   specks. (Not a container query on .card: the hand sizes cards in cqw, and
+   a card that is itself a container re-resolves that unit for everything
+   inside it.) */
+.discard-row .card__name,
+.discard-row .card__rung:not(.is-on) {
+  visibility: hidden;
+}
+
+/* Non-colour channel for CardSlot, the one face with no art of its own:
+   an empty slot carries its suit's mark instead. */
 .card__mark {
   position: absolute;
   top: 0.25rem;
   left: 0.3rem;
   font-size: calc(var(--card-width) * 0.2);
   opacity: 0.75;
-}
-
-/* The corner index exists only for a buried column card, where the one
-   played after it covers everything but a sliver too thin for the centred
-   numeral (columnMetrics.ts). Everywhere else the big numeral is the whole
-   point, and a second one would just be noise. */
-.card__index {
-  display: none;
-  position: absolute;
-  top: 0.2rem;
-  left: 0.32rem;
-  font-family: var(--font-numeral);
-  font-size: calc(var(--card-width) * 0.3);
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: -0.02em;
 }
 
 /* Scoped to <button>: a non-interactive card is a <div> now (Card.tsx), and
@@ -167,7 +275,7 @@ button.card:not(:disabled):active {
    lives on the wrapper); the outline belongs to focus alone.
    Only Hand passes `selected`, so this cannot reach the table. */
 .card.is-selected {
-  box-shadow: 0 6px 14px rgb(31 29 26 / 0.35), inset 0 0 0 2px var(--paper);
+  box-shadow: var(--card-shadow-lift), inset 0 0 0 2px var(--card-stock);
 }
 
 .card:focus-visible {
@@ -180,12 +288,23 @@ button.card:not(:disabled):active {
   filter: saturate(0.4);
 }
 
+/* A spot printed on the board, not a drop target: a faint wash of the
+   suit's colour, a fine keyline, and its emblem in the middle — the way an
+   empty expedition space looks on the real game's board. A dashed outline
+   read as a web form's upload box. */
 .card--slot {
-  background: transparent;
-  border: 2px dashed var(--colour);
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--colour) 9%, transparent);
+  border: 1.5px solid color-mix(in srgb, var(--colour) 38%, transparent);
   color: var(--colour);
-  box-shadow: none;
-  opacity: 0.45;
+  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--colour) 6%, transparent);
+}
+
+.card--slot .card__mark {
+  position: static;
+  font-size: calc(var(--card-width) * 0.42);
+  opacity: 0.35;
 }
 
 /* A card nobody has seen: what a draw off the deck looks like in flight, and
@@ -194,11 +313,34 @@ button.card:not(:disabled):active {
 .card--back {
   width: var(--card-width);
   aspect-ratio: 2 / 3;
-  border-radius: var(--radius);
-  background-image: url('../assets/img/CardBack.png');
-  background-size: cover;
-  background-position: center;
-  box-shadow: 0 2px 6px rgb(31 29 26 / 0.28);
+  border-radius: calc(var(--card-width) * 0.065);
+  /* The Field Journal back: parchment, an engraved compass rose, a double
+     rule in ink — the face's own vocabulary turned over, so the deck belongs
+     to the same set as the cards dealt from it. The rules are stacked inset
+     shadows, each later one showing as a 1px ring past the one above it. */
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='%234a3d2c' stroke-width='1.2'%3E%3Ccircle cx='50' cy='50' r='40'/%3E%3Ccircle cx='50' cy='50' r='33' stroke-width='0.6'/%3E%3Cpath d='M50 4 L57 43 L96 50 L57 57 L50 96 L43 57 L4 50 L43 43 Z' fill='%234a3d2c' fill-opacity='0.12'/%3E%3Cpath d='M50 18 L54 46 L82 50 L54 54 L50 82 L46 54 L18 50 L46 46 Z' fill='%234a3d2c' fill-opacity='0.35'/%3E%3C/svg%3E")
+      center / 76% auto no-repeat,
+    #e9dfc6;
+  box-shadow:
+    var(--card-shadow),
+    inset 0 0 0 calc(var(--card-width) * 0.05) #e9dfc6,
+    inset 0 0 0 calc(var(--card-width) * 0.05 + 1px) #4a3d2c,
+    inset 0 0 0 calc(var(--card-width) * 0.08) #e9dfc6,
+    inset 0 0 0 calc(var(--card-width) * 0.08 + 1px) rgb(74 61 44 / 0.5);
+}
+
+/* Cards dropped on a real table never land square. Every card on the table
+   carries its own small tilt and nudge (--tilt, --nudge-x, --nudge-y, set by
+   Card.tsx from the card's id, so the same card always lies the same way
+   and a re-render never jiggles it). Individual transform properties, not
+   `transform`: they compose with the 180deg turn a far-seat column card
+   already carries instead of replacing it. Hand cards are left square —
+   they are held, and the hand lays them out itself. */
+.board__side .card:not(.card--slot),
+.discard-row .card:not(.card--slot) {
+  rotate: var(--tilt, 0deg);
+  translate: var(--nudge-x, 0) var(--nudge-y, 0);
 }
 
 /* Already in the state that arrived with the cue, so already on the table
@@ -217,6 +359,8 @@ button.card:not(:disabled):active {
   height: 100%;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
+  /* The containing block for the floating sound chips. */
+  position: relative;
   /* Nothing here is text to copy, and dragging across a card otherwise
      leaves a selection behind. The next press then starts a native drag of
      that selection, which arrives as a pointercancel and silently kills the
@@ -277,8 +421,10 @@ button.card:not(:disabled):active {
   /* Opaque, and above the sides: this is what the status/turn bars used to
      do for the board's outer edges before overflow: hidden on .board__side
      made it unnecessary for spillover, but a deep column's own top card can
-     still legitimately reach the band's own edge. */
-  background: var(--paper);
+     still legitimately reach the band's own edge. Transparent now: the
+     sides clip their own overflow, and an opaque paper strip across the
+     cloth read as a toolbar rather than the edge of a table. */
+  background: transparent;
 }
 
 .round-chip {
@@ -313,7 +459,7 @@ button.card:not(:disabled):active {
 .seat-plate__name {
   font-size: 0.85rem;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-variant-caps: all-small-caps;
 }
 
 .seat-plate__score {
@@ -440,9 +586,13 @@ button.card:not(:disabled):active {
 .lane__score {
   justify-self: center;
   align-self: center;
+  /* Pencilled tally, not a UI badge: italic graphite, the way the running
+     score gets jotted down beside a real game. */
   font-family: var(--font-numeral);
   font-size: 1.15rem;
-  font-weight: 700;
+  font-style: italic;
+  font-weight: 600;
+  color: var(--pencil);
   line-height: 1;
   /* The rail is a fixed track; a wrapped label would eat into the column's
      own share of the band without sideMetrics() ever knowing. */
@@ -451,7 +601,7 @@ button.card:not(:disabled):active {
 }
 
 .lane__score.is-negative {
-  color: var(--danger);
+  color: var(--pencil-negative);
 }
 
 /* Read by the player opposite: rotated to face them, and — being the row
@@ -505,26 +655,19 @@ button.card:not(:disabled):active {
 
 /* In a staircase the exposed part of a buried card is its edge nearest the
    card behind it — screen-left for the bottom lane, screen-right for the
-   mirrored top one — so a buried card's corner index carries the value and
-   its big centred numeral is dropped: overlapped, it would be bisected by
-   the next card and read as a rendering fault rather than a number. The
-   last card in the stack — DOM order matches play order, so this is always
-   the most recently played, fully exposed one — needs no such trade and
-   renders exactly like a hand card: the base rules apply untouched.
+   mirrored top one — so a buried card's top-left corner index carries the
+   value and its centred numeral is dropped: overlapped, it would be
+   bisected by the next card and read as a rendering fault rather than a
+   number. The last card in the stack — DOM order matches play order, so
+   this is always the most recently played, fully exposed one — renders
+   exactly like a hand card: the base rules apply untouched.
 
    The index lives at the card's own local top-left and needs no
    lane-specific override: a top-lane card is turned 180° as a whole
    (.lane--top .column__card .card, below), which carries this same corner
    to the screen-space spot the mirrored stagger exposes — and, seen from
    the far player's own side of the table, back to their top-left again. */
-.column__card:not(:last-child) .card__index {
-  display: block;
-  font-size: calc(var(--card-width) * 0.16);
-  top: 0.1em;
-  left: 0.16em;
-}
-
-.column__card:not(:last-child) .card__value {
+.column__card:not(:last-child) .card__centre {
   display: none;
 }
 
@@ -583,16 +726,26 @@ button.card:not(:disabled):active {
 .discard-row {
   align-items: center;
   padding-block: 0.5rem;
-  border-top: 1px solid var(--rule);
-  border-bottom: 1px solid var(--rule);
-  /* Opaque, and above both sides — this is what the deleted status/turn
+  border-top: 1px solid rgb(60 45 25 / 0.25);
+  border-bottom: 1px solid rgb(60 45 25 / 0.25);
+  /* The printed centre board: a darker panel lying on the cloth, inset so
+     its edges read as a board's thickness. Rounded corners only — inline
+     padding or a side border would shear this band's grid tracks off the
+     two sides' (see .name-row above). Opaque, and above both sides — this is what the deleted status/turn
      bars used to do for the board's outer edges. No overflow clipping: the
      reach lifts a pulled card out of this band by design, all the way past
      REACH_PX and beyond (drawGesture.ts), and the lift is deliberately not
      undone on a take (see the comment in DiscardRow.tsx). */
   position: relative;
   z-index: 2;
-  background: var(--paper);
+  border-radius: 6px;
+  background:
+    linear-gradient(rgb(255 250 235 / 0.18), rgb(60 45 25 / 0.06)),
+    var(--board-panel);
+  box-shadow:
+    inset 0 1px 0 rgb(255 250 235 / 0.35),
+    inset 0 -1px 2px rgb(60 45 25 / 0.15),
+    0 1px 3px rgb(40 30 15 / 0.15);
 }
 
 /* No text, so it needs no rotation and reads identically from both seats:
@@ -604,11 +757,15 @@ button.card:not(:disabled):active {
    The turn text on the active player's own plate is still the detailed
    answer; this is the one a glance across the table also catches. */
 .discard-row--turn-top {
-  box-shadow: inset 0 3px 0 var(--ink);
+  box-shadow:
+    inset 0 3px 0 var(--turn-accent),
+    0 1px 3px rgb(40 30 15 / 0.15);
 }
 
 .discard-row--turn-bottom {
-  box-shadow: inset 0 -3px 0 var(--ink);
+  box-shadow:
+    inset 0 -3px 0 var(--turn-accent),
+    0 1px 3px rgb(40 30 15 / 0.15);
 }
 
 .discard-row .card {
@@ -658,7 +815,7 @@ button.card:not(:disabled):active {
 .is-reaching {
   transition: none;
   z-index: 5;
-  filter: drop-shadow(0 10px 18px rgb(31 29 26 / 0.42));
+  filter: drop-shadow(0 10px 18px rgb(40 30 15 / 0.42));
 }
 
 /* Pulled away from the seat that is drawing, so letting go will do nothing.
@@ -668,12 +825,12 @@ button.card:not(:disabled):active {
   filter: grayscale(0.6);
 }
 
-/* A short stack of backs with the count over it, in the gutter track. The
-   explicit width and aspect-ratio are not decoration: rectOf() (Table.tsx)
-   discards any anchor whose width comes out 0, and a deck-draw flight would
-   then silently stop happening. The leaves are offset by transform only, so
-   however many there are, the anchor box — this element — stays exactly
-   the size of the top card. */
+/* A short stack of backs with the count banded round it, in the gutter
+   track. The explicit width and aspect-ratio are not decoration: rectOf()
+   (Table.tsx) discards any anchor whose width comes out 0, and a deck-draw
+   flight would then silently stop happening. The leaves are offset by
+   transform only, so however many there are, the anchor box — this
+   element — stays exactly the size of the top card. */
 .deck {
   position: relative;
   display: grid;
@@ -687,42 +844,115 @@ button.card:not(:disabled):active {
   grid-area: 1 / 1;
 }
 
-/* Behind the top card, stepped up and left. Purely cosmetic depth — the
-   count is the only thing that actually reads at a glance. */
+/* Behind the top card, stepped up and left: the edges of the cards under
+   it, so the stack reads as a stack. */
 .deck__leaf {
   transform: translate(calc(var(--d, 0) * -0.16rem), calc(var(--d, 0) * -0.16rem));
-  opacity: 0.7;
+  filter: brightness(0.94);
 }
 
-/* One chip, centred on the deck's top card via .deck's own place-items:
-   center, and turned sideways rather than upright toward either seat — the
-   deck sits between both same as the discard piles, so a chip that faced
-   one of them would read upside-down to the other. Rotated 90deg it costs
-   both seats the same head-tilt instead of favouring one. */
+/* The count, printed on a paper band wrapped lengthwise round the deck the
+   way a new deck comes banded. Lengthwise because the deck sits between both
+   seats: text running along the band reads sideways to both of them alike,
+   rather than upright to one and upside-down to the other. vertical-rl does
+   the turn, so no transform fights the band's own layout. The band's colour
+   is the urgency: ink, then amber, then red as the round runs out. */
 .deck__count {
   grid-area: 1 / 1;
   z-index: 1;
-  transform: rotate(90deg);
-  padding: 0.08em 0.3em;
-  border-radius: var(--radius);
-  font-family: var(--font-numeral);
-  font-size: calc(var(--pile-w) * 0.52);
+  align-self: stretch;
+  justify-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35em;
+  width: calc(var(--pile-w) * 0.3);
+  margin-block: -1px;
+  writing-mode: vertical-rl;
+  background: #3b3226;
+  color: var(--card-light);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.12), 0 1px 3px rgb(0 0 0 / 0.3);
+  transition: background var(--motion);
+}
+
+.deck__count-n {
+  font-family: var(--font-card-numeral);
   font-weight: 700;
+  font-size: calc(var(--pile-w) * 0.24);
   line-height: 1;
-  /* A chip, not coloured text: --warn/--danger read fine as ink on --paper,
-     but not against the striped ink-coloured back this now sits on. */
-  background: var(--paper);
-  color: var(--ink);
+}
+
+.deck__count-left {
+  font-family: var(--font-card-caps);
+  font-size: calc(var(--pile-w) * 0.12);
+  letter-spacing: 0.16em;
+  line-height: 1;
 }
 
 .deck--low .deck__count {
-  background: var(--warn);
-  color: var(--paper);
+  background: #a8731b;
 }
 
 .deck--critical .deck__count {
-  background: var(--danger);
-  color: var(--paper);
+  background: #a3271a;
+}
+
+/* ---- the cloth corner: turning the table over to night and back ---- */
+
+/* The top-right corner of the cloth, folded back to show its other side.
+   Pulled diagonally in toward the middle of the table, the fold follows the
+   finger (--fold, set by ClothCorner.tsx); past the threshold, the whole
+   cloth turns over. A directional pull, like the reach for a card — the only
+   kind of input this display takes — so a lean or a brush cannot turn it.
+   Two halves of one square: the lifted corner's shadow above the diagonal,
+   the folded flap below it. */
+.cloth-corner {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 20;
+  width: var(--fold, 2.75rem);
+  height: var(--fold, 2.75rem);
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+  transition: width var(--motion), height var(--motion);
+}
+
+.cloth-corner.is-peeling {
+  transition: none;
+  cursor: grabbing;
+}
+
+.cloth-corner::before,
+.cloth-corner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+.cloth-corner::before {
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+  background: rgb(0 0 0 / 0.35);
+}
+
+.cloth-corner::after {
+  clip-path: polygon(0 0, 100% 100%, 0 100%);
+  background: var(--cloth-underside);
+  filter: drop-shadow(-3px 3px 4px rgb(0 0 0 / 0.35));
+}
+
+.cloth-corner:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: -3px;
+}
+
+/* At night the cards are dimmed a touch so they do not glare off a dark
+   table; on the tablet only, which sets data-theme itself. */
+:root[data-theme='night'] .board {
+  filter: brightness(0.93);
 }
 
 /* ---------- shared screens ---------- */
@@ -756,7 +986,10 @@ button.card:not(:disabled):active {
 
 .lobby__code {
   font-family: var(--font-numeral);
-  font-size: clamp(5rem, 26vw, 16rem);
+  /* Bounded by height too: it renders twice, once per seat, and on a
+     1280x800 tablet a width-only clamp pushed the near seat's name off the
+     bottom of the screen. */
+  font-size: clamp(3rem, min(26vw, 19svh), 16rem);
   font-weight: 700;
   letter-spacing: 0.08em;
   line-height: 1;
@@ -832,7 +1065,7 @@ button.card:not(:disabled):active {
   width: clamp(7rem, 18vh, 11rem);
   height: clamp(7rem, 18vh, 11rem);
   padding: 0.5rem;
-  background: var(--paper-dim);
+  background: var(--qr-paper);
   border: 1px solid var(--rule);
   border-radius: var(--radius);
 }
@@ -918,7 +1151,7 @@ button.card:not(:disabled):active {
 .breakdown th[scope='row'],
 .match-table th[scope='row'] {
   text-align: left;
-  text-transform: uppercase;
+  font-variant-caps: all-small-caps;
   letter-spacing: 0.1em;
   font-weight: 400;
 }
@@ -1046,7 +1279,7 @@ button.card:not(:disabled):active {
   font-size: 0.95rem;
   font-weight: 700;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-variant-caps: all-small-caps;
   text-align: center;
   color: var(--ink);
   opacity: 0.45;
@@ -1097,6 +1330,28 @@ button.card:not(:disabled):active {
   z-index: 200;
   pointer-events: none;
   will-change: transform;
+  /* Depth for a card that turns over in the air (below). */
+  perspective: 700px;
+}
+
+/* A card that turns over in the air (CardFlight's `flip`): two faces back to
+   back on an inner element, which CardFlight turns from 180deg to 0 while
+   the outer element carries the travel. */
+.card-flight__flipper {
+  position: relative;
+  transform-style: preserve-3d;
+  transform: rotateY(180deg);
+}
+
+.card-flight__face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.card-flight__face--back {
+  position: absolute;
+  inset: 0;
+  transform: rotateY(180deg);
 }
 
 .sr-only {
@@ -1140,12 +1395,15 @@ button.card:not(:disabled):active {
    390×844 viewport in Playwright. */
 .hand {
   container-type: inline-size;
-  --hand-gap: 0.5rem;
-  --row-budget: calc((46svh - var(--hand-gap)) / 2);
+  --hand-gap: 0.4rem;
+  /* Each card overhangs its slot by this fraction of its own width. */
+  --fan-overlap: 0.24;
+  --row-budget: calc((54svh - var(--hand-gap)) / 2);
+  --slot-w: calc(100cqw / var(--per-row, 4));
   --card-w: min(
-    8rem,
+    8.5rem,
     calc(var(--row-budget) / 1.5),
-    calc((100cqw - (var(--per-row, 4) - 1) * var(--hand-gap)) / var(--per-row, 4))
+    calc(var(--slot-w) / (1 - var(--fan-overlap)))
   );
 
   position: relative;
@@ -1155,12 +1413,17 @@ button.card:not(:disabled):active {
   flex-wrap: wrap;
   flex: 1;
   align-items: center;
-  align-content: center;
+  /* Held low, near the thumbs, the way a hand of cards actually sits —
+     the open space above is the table edge a card gets thrown toward. */
+  align-content: end;
+  padding-bottom: 2.5rem;
   justify-content: center;
-  gap: var(--hand-gap);
+  /* Rows only: within a row the overlap is the spacing. */
+  row-gap: var(--hand-gap);
+  column-gap: 0;
   list-style: none;
   margin: 0;
-  padding: 0 1.25rem;
+  padding-inline: 1.25rem;
   /* A carried card leaves the row; the row must not clip it. */
   overflow: visible;
   /* A vertical drag of the row itself is not a game action in portrait —
@@ -1186,15 +1449,54 @@ button.card:not(:disabled):active {
   --card-width: var(--card-w);
 }
 
-/* In a row the whole face shows, so the big centred numeral is the one that
-   reads; the corner index would just be a second copy of it. */
-.hand .card__index {
-  display: none;
-}
+/* A fanned hand, held: each slot is narrower than the card it holds, so the
+   card overhangs it and overlaps its neighbours — the later card on top,
+   leaving every card's top-left corner index showing, which is exactly why
+   real cards carry one there. The row's wrap point is untouched because
+   the slots, not the cards, are what divide the row's width.
 
+   Each card turns and drops by its offset from the middle of its row
+   (--fan-o, from Hand.tsx), pivoting near its foot, so a row bows into a
+   gentle arc. Individual transform properties, so they compose with the
+   carry's inline transform rather than being replaced by it. */
 .hand__slot {
   flex: 0 0 auto;
-  transition: transform var(--motion), filter var(--motion), opacity var(--motion);
+  display: flex;
+  justify-content: center;
+  width: var(--slot-w);
+  transform-origin: 50% 85%;
+  rotate: calc(var(--fan-o, 0) * 3.2deg);
+  translate: 0 calc(var(--fan-o, 0) * var(--fan-o, 0) * 0.3rem);
+  transition:
+    transform var(--motion),
+    rotate var(--motion),
+    translate var(--motion),
+    filter var(--motion),
+    opacity var(--motion);
+}
+
+/* A fresh deal fans in: each card drops into the hand from the table edge
+   above, one after another (--deal-i from Hand.tsx). On the card inside the
+   slot, never the slot itself, so the fan's own rotate/translate on the
+   slot are untouched. 'backwards' holds each card off-screen until its
+   turn comes. */
+@keyframes deal-in {
+  from {
+    transform: translateY(-70svh) rotate(-8deg);
+    opacity: 0;
+  }
+  60% {
+    opacity: 1;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.hand.is-dealing .hand__slot .card {
+  animation: deal-in 360ms cubic-bezier(0.2, 0.7, 0.3, 1) backwards;
+  animation-delay: calc(var(--deal-i, 0) * 90ms);
 }
 
 /* Nothing this player may do with this card right now. */
@@ -1209,10 +1511,13 @@ button.card:not(:disabled):active {
 .hand__slot.is-carried {
   transition: none;
   will-change: transform;
+  /* Straightened out of the fan once it is in the hand: the carry's own
+     tilt is the only rotation left. */
+  rotate: 0deg;
 }
 
 .hand__slot.is-carried .card {
-  box-shadow: 0 18px 34px rgb(31 29 26 / 0.42);
+  box-shadow: var(--card-shadow-lift);
 }
 
 /* The whole row goes quiet during the draw phase and the opponent's turn,
@@ -1387,7 +1692,7 @@ button.card:not(:disabled):active {
   font-family: var(--font-ui);
   font-size: 0.72rem;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-variant-caps: all-small-caps;
 }
 
 .hand-actions__button {
@@ -1416,7 +1721,7 @@ button.card:not(:disabled):active {
   font-family: var(--font-ui);
   font-size: 0.85rem;
   letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-variant-caps: all-small-caps;
   text-decoration: none;
   text-align: center;
   cursor: pointer;
@@ -1505,7 +1810,7 @@ button.card:not(:disabled):active {
 .reconnect-bar {
   padding: 0.3rem;
   background: var(--warn);
-  color: var(--paper);
+  color: var(--card-light);
   text-align: center;
 }
 
@@ -1516,14 +1821,32 @@ button.card:not(:disabled):active {
 /* One-time invitation to unlock audio — see Table.tsx's needsSoundUnlock.
    ink not warn: this isn't a problem, just a nudge. */
 .sound-prompt {
-  padding: 0.3rem;
-  background: var(--ink);
-  color: var(--paper);
+  /* A small chip floating at each seat's edge, not a full-width bar: out of
+     the layout entirely, so the board doesn't jump when it goes away after
+     the first touch. Tucked into the right-hand corner, clear of the seat
+     plates centred in each name row. */
+  position: absolute;
+  right: 1rem;
+  z-index: 10;
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  background: rgb(31 29 26 / 0.72);
+  color: var(--card-light);
   text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgb(40 30 15 / 0.25);
 }
 
 .sound-prompt--top {
+  top: 0.4rem;
+  /* Clear of the cloth corner folded back in this corner (ClothCorner.tsx). */
+  right: 4.5rem;
   transform: rotate(180deg);
+}
+
+.sound-prompt--bottom {
+  bottom: 0.4rem;
 }
 
 .toast {
@@ -1532,7 +1855,7 @@ button.card:not(:disabled):active {
   border: none;
   border-radius: var(--radius);
   background: var(--danger);
-  color: var(--paper);
+  color: var(--card-light);
   font-family: var(--font-ui);
   font-size: 0.85rem;
   text-align: left;

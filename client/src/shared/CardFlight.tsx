@@ -37,6 +37,16 @@ export interface CardFlightProps {
   /** Play the flight backwards — the server refused the move. */
   reversed?: boolean;
   durationMs?: number;
+  /**
+   * Wait this long before setting off, sitting at `from` meanwhile — how a
+   * deal staggers one card after another off the same deck.
+   */
+  delayMs?: number;
+  /**
+   * Turn over in the air: leave face down, arrive face up. A card drawn off
+   * the deck nobody has seen, becoming the one now in this hand.
+   */
+  flip?: boolean;
   onDone: () => void;
 }
 
@@ -52,9 +62,12 @@ export function CardFlight({
   spin = 0,
   reversed = false,
   durationMs = FLIGHT_MS,
+  delayMs = 0,
+  flip = false,
   onDone,
 }: CardFlightProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const flipper = useRef<HTMLDivElement>(null);
   // onDone is called from an effect that must run exactly once; keeping it
   // in a ref means a re-rendered parent cannot restart the flight.
   const done = useRef(onDone);
@@ -94,10 +107,31 @@ export function CardFlight({
     ];
 
     let cancelled = false;
+    // 'both', not 'forwards', when delayed: the card has to hold its start
+    // frame while it waits, or it would show at its resting CSS position.
+    const fill: FillMode = delayMs > 0 ? 'both' : 'forwards';
+    if (flip && flipper.current) {
+      // The turn rides on an inner element so it composes with the travel
+      // on the outer one rather than fighting it for `transform`.
+      animate(
+        flipper.current,
+        // Held face down for the first stretch, then turned through the
+        // middle of the journey — an even ease, so the edge-on moment
+        // reads as a turn rather than a blink.
+        [
+          { transform: 'rotateY(180deg)' },
+          { transform: 'rotateY(180deg)', offset: 0.2 },
+          { transform: 'rotateY(0deg)', offset: 0.85 },
+          { transform: 'rotateY(0deg)' },
+        ],
+        { duration: durationMs, easing: 'ease-in-out', fill, delay: delayMs },
+      );
+    }
     animate(el, reversed ? [...frames].reverse() : frames, {
       duration: durationMs,
       easing: EASE,
-      fill: 'forwards',
+      fill,
+      delay: delayMs,
     }).then(() => {
       if (!cancelled) done.current();
     });
@@ -117,7 +151,20 @@ export function CardFlight({
       aria-hidden="true"
       style={{ left: from.x, top: from.y, width: from.width, height: from.height }}
     >
-      {card ? <Card card={card} size="lg" /> : <div className="card card--back" />}
+      {card && flip ? (
+        <div ref={flipper} className="card-flight__flipper">
+          <div className="card-flight__face">
+            <Card card={card} size="lg" />
+          </div>
+          <div className="card-flight__face card-flight__face--back">
+            <div className="card card--lg card--back" />
+          </div>
+        </div>
+      ) : card ? (
+        <Card card={card} size="lg" />
+      ) : (
+        <div className="card card--back" />
+      )}
     </div>
   );
 }

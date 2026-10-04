@@ -21,6 +21,8 @@
 export const FLIGHT_MS = 260;
 export const LAND_MS = 180;
 export const DRAW_FLIGHT_MS = 240;
+/** A deck draw turns over on its way in, and needs the time to be seen doing it. */
+export const FLIP_FLIGHT_MS = 420;
 /** The refusal shake. Long enough to read as "no", short enough to retry. */
 export const SHAKE_MS = 320;
 

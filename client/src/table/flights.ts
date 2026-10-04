@@ -89,3 +89,26 @@ export function planFlight(event: TableEvent, before: TableView): FlightPlan | n
   // roundOver and matchOver are screen changes, not journeys.
   return null;
 }
+
+/** One card of a deal: whose side it goes to, and when it leaves the deck. */
+export interface DealStep {
+  seat: Seat;
+  delayMs: number;
+}
+
+/** Between one dealt card and the next — brisk, like a practised dealer. */
+export const DEAL_STAGGER_MS = 70;
+
+/**
+ * The order a deal goes out in: one card at a time, alternating seats, the
+ * seat that moves first getting the first card — the way a dealer works
+ * round a real table. Purely cosmetic: the hands are already in the state
+ * that arrived with the cue; this only animates backs leaving the deck.
+ */
+export function planDeal(handSize: number, firstSeat: Seat): DealStep[] {
+  const other: Seat = firstSeat === 0 ? 1 : 0;
+  return Array.from({ length: handSize * 2 }, (_, i) => ({
+    seat: i % 2 === 0 ? firstSeat : other,
+    delayMs: i * DEAL_STAGGER_MS,
+  }));
+}

@@ -20,3 +20,17 @@ export function perRow(count: number): number {
   if (count <= 4) return count;
   return Math.ceil(count / 2);
 }
+
+/**
+ * Where a card sits in the fan of its own row: its offset from the middle,
+ * so a row of four runs -1.5, -0.5, 0.5, 1.5 and a lone card is 0. The CSS
+ * turns and drops each card by this, which is what bows a row into an arc.
+ * The second row is fanned on its own, around its own middle.
+ */
+export function fanOffset(index: number, count: number): number {
+  const first = perRow(count);
+  const inFirst = index < first;
+  const rowSize = inFirst ? first : count - first;
+  const position = inFirst ? index : index - first;
+  return position - (rowSize - 1) / 2;
+}

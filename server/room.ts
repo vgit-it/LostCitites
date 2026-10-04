@@ -82,6 +82,7 @@ export class Room {
     }
 
     dealRound(this.state, 0, this.rng);
+    this.emit({ name: 'dealt', round: this.state.round });
     this.broadcast();
   }
 
@@ -145,6 +146,7 @@ export class Room {
     this.state.readyForNextRound[seat] = true;
     if (this.state.readyForNextRound[0] && this.state.readyForNextRound[1]) {
       advanceRound(this.state, this.rng);
+      this.emit({ name: 'dealt', round: this.state.round });
     }
     this.broadcast();
   }

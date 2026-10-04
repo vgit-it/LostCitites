@@ -25,16 +25,63 @@
   --colour-red: var(--magma);
 
   --paper-dim: #ded8c8;
+
+  /* The surface the cards lie on — the one thing that makes a screen read as
+     a table rather than a page. Woven linen in the art's parchment tones:
+     a warm base, two hairline weaves at right angles, and a vignette so the
+     middle of the table catches the light and the edges fall away. Pure
+     gradients, no image asset, so it scales to any screen without a seam. */
+  --surface: #d9cfb8;
+  --surface-weave:
+    repeating-linear-gradient(0deg, rgb(255 250 235 / 0.045) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, rgb(60 45 25 / 0.04) 0 1px, transparent 1px 4px),
+    radial-gradient(ellipse at 50% 45%, rgb(255 248 230 / 0.35), transparent 65%),
+    radial-gradient(ellipse at 50% 50%, transparent 55%, rgb(60 45 25 / 0.28) 100%);
+  /* The printed centre board the discard piles sit on: a shade darker than
+     the cloth, inset, so it reads as something lying on the table. */
+  --board-panel: #cfc3a8;
+  /* A card lying on cloth: a tight contact shadow where the edge touches, a
+     soft ambient one under it. --card-shadow-lift is the same card held
+     off the table (selected, carried, reached for). */
+  --card-shadow: 0 1px 1px rgb(40 30 15 / 0.3), 0 3px 7px rgb(40 30 15 / 0.22);
+  --card-shadow-lift: 0 4px 6px rgb(40 30 15 / 0.25), 0 12px 24px rgb(40 30 15 / 0.3);
   --warn: #b8791f;
   --danger: #a33b26;
 
-  --font-numeral: 'Barlow Condensed', 'Oswald', 'Arial Narrow', sans-serif;
-  --font-ui: 'IBM Plex Mono', 'Space Mono', ui-monospace, 'SF Mono', monospace;
-  /* The face on the card itself only — a classic serif numeral for the big
-     centred value, distinct from --font-numeral's condensed sans (still
-     used for the deck count, scores, and every other numeral in the
-     chrome). */
-  --font-card-numeral: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, 'Times New Roman', serif;
+  /* Printed, not typed: the same old-style serif the card faces use, for
+     every number and label around them too, so the chrome reads as part of
+     a printed game rather than an app laid over one. */
+  --font-numeral: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, 'Times New Roman', serif;
+  --font-ui: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, 'Times New Roman', serif;
+  /* The card face only. Numerals in Playfair Display: a high-contrast
+     period serif whose figures are lining by default — IM Fell's
+     old-style figures made a 10 read as "IO" and dropped 3/4/5/9 below
+     the line, which a game cannot afford. Small capitals (the expedition
+     name, the wager ribbon) in IM Fell English SC, for the inked edge of
+     period engraving beside the plates. Both self-hosted (@fontsource,
+     imported in main.tsx). */
+  --font-card-numeral: 'Playfair Display', 'Iowan Old Style', Palatino, Georgia, serif;
+  --font-card-caps: 'IM Fell English SC', 'Iowan Old Style', Palatino, Georgia, serif;
+  /* The parchment a card is printed on, and the cartouches' fill. */
+  --card-stock: #efe6d0;
+  /* Light print on a coloured ground — the ladder's idle rungs, the alert
+     chips' text. Fixed in both themes: it sits on its own coloured ground,
+     never on the cloth. */
+  --card-light: #f3ead4;
+  /* A QR has to stay dark-on-light in both themes or phones stop scanning
+     it, so it has its own pair rather than borrowing --ink and --paper. */
+  --qr-paper: #efe6d0;
+  --qr-ink: #1f1d1a;
+
+  /* Chrome that sits straight on the cloth and so must flip with it. */
+  --pencil: #4a4438;
+  --pencil-negative: #8a3a28;
+  --turn-accent: rgb(31 29 26 / 0.75);
+  /* The other side of the cloth, shown in the folded-back corner that turns
+     the table over (ClothCorner.tsx): slate by day, linen by night. */
+  --cloth-underside:
+    repeating-linear-gradient(0deg, rgb(255 255 255 / 0.03) 0 1px, transparent 1px 4px),
+    linear-gradient(135deg, #2b3037, #1b1e23);
 
   --radius: 4px;
   --motion: 180ms cubic-bezier(0.2, 0.7, 0.3, 1);
@@ -44,6 +91,63 @@
      Mirrored by FLIGHT_MS in client/src/platform/motion.ts, which is the
      source of truth — WAAPI cannot read a CSS custom property. */
   --motion-flight: 260ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+/* ---------- night: the Ink slate cloth ----------
+
+   Only the cloth and the chrome lying on it change; the cards are printed
+   objects and stay parchment. The tablet sets data-theme itself, from the
+   cloth corner it was last turned over with (platform/theme.ts), falling
+   back to the device's dark-mode setting. A phone sets nothing and simply
+   follows its device — the media query below. The two blocks hold the same
+   values; CSS has no way to share one declaration list between a selector
+   and a media query. */
+:root[data-theme='night'] {
+  --surface: #1b1e23;
+  --surface-weave:
+    radial-gradient(ellipse at 50% 45%, rgb(200 210 230 / 0.07), transparent 60%),
+    radial-gradient(ellipse at 50% 50%, transparent 50%, rgb(0 0 0 / 0.5) 100%),
+    repeating-linear-gradient(0deg, rgb(255 255 255 / 0.025) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, rgb(0 0 0 / 0.1) 0 1px, transparent 1px 4px);
+  --board-panel: #252a31;
+  --ink: #d9d4c8;
+  --paper: #23272d;
+  --paper-dim: #2b3037;
+  --rule: #4a505a;
+  --card-shadow: 0 1px 1px rgb(0 0 0 / 0.45), 0 4px 10px rgb(0 0 0 / 0.45);
+  --card-shadow-lift: 0 4px 6px rgb(0 0 0 / 0.4), 0 12px 24px rgb(0 0 0 / 0.5);
+  --pencil: #b9b3a6;
+  --pencil-negative: #e08c74;
+  --turn-accent: #d9d4c8;
+  --cloth-underside:
+    repeating-linear-gradient(0deg, rgb(255 250 235 / 0.05) 0 1px, transparent 1px 4px),
+    linear-gradient(135deg, #e6dcc4, #cfc3a8);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='day']) {
+    --surface: #1b1e23;
+    --surface-weave:
+      radial-gradient(ellipse at 50% 45%, rgb(200 210 230 / 0.07), transparent 60%),
+      radial-gradient(ellipse at 50% 50%, transparent 50%, rgb(0 0 0 / 0.5) 100%),
+      repeating-linear-gradient(0deg, rgb(255 255 255 / 0.025) 0 1px, transparent 1px 4px),
+      repeating-linear-gradient(90deg, rgb(0 0 0 / 0.1) 0 1px, transparent 1px 4px);
+    --board-panel: #252a31;
+    --ink: #d9d4c8;
+    --paper: #23272d;
+    --paper-dim: #2b3037;
+    --rule: #4a505a;
+    --card-shadow: 0 1px 1px rgb(0 0 0 / 0.45), 0 4px 10px rgb(0 0 0 / 0.45);
+    --card-shadow-lift: 0 4px 6px rgb(0 0 0 / 0.4), 0 12px 24px rgb(0 0 0 / 0.5);
+    --pencil: #b9b3a6;
+    --pencil-negative: #e08c74;
+    --turn-accent: #d9d4c8;
+    --cloth-underside:
+      repeating-linear-gradient(0deg, rgb(255 250 235 / 0.05) 0 1px, transparent 1px 4px),
+      linear-gradient(135deg, #e6dcc4, #cfc3a8);
+    color-scheme: dark;
+  }
 }
 
 *,
@@ -60,19 +164,21 @@ body,
 }
 
 body {
-  background: var(--paper);
+  background: var(--surface-weave), var(--surface);
+  background-attachment: fixed;
   color: var(--ink);
   font-family: var(--font-ui);
   -webkit-text-size-adjust: 100%;
   overscroll-behavior: none;
 }
 
-/* Labels and chrome: small, wide-tracked, uppercase — the survey feel. */
+/* Labels and chrome: small caps in the printed serif, the way a rules card
+   or a box lid sets its headings. */
 .label {
   font-family: var(--font-ui);
-  font-size: 0.7rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-size: 0.8rem;
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.12em;
   color: var(--ink);
   opacity: 0.65;
 }

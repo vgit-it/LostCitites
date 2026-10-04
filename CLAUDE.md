@@ -56,6 +56,7 @@ client/src/
   session/       socket -> rejoinStore -> session store -> useSession hook
   table/         Table, Column, DiscardRow, RoundEnd, ElevationProfile
                  flights, drawGesture — cards arriving, and the one reach
+                 ClothCorner, peelGesture — turning the cloth over to night
                  qrCode, JoinCode — the lobby's per-seat QR
   phone/         Phone, JoinScreen, Hand, FlickZones, HandActions
                  gesture, throw, columnRead — the carry and what it meant
@@ -64,8 +65,9 @@ client/src/
                  flightPath, carry — the arithmetic of a card in the air
                  invite — the join URL, written by the tablet and read by the phone
                  seating — the one place a seat maps to the table's own top/bottom edge
-  platform/      vibrate, wakeLock, orientation, motion, sound — the only
-                 files touching `navigator` / `screen` / `Audio`
+  platform/      vibrate, wakeLock, orientation, motion, sound, theme — the
+                 only files touching `navigator` / `screen` / `Audio` /
+                 `matchMedia` / `<html>`
   demo/          the server, running in the browser (see below)
 ```
 
@@ -134,6 +136,10 @@ WebSocket, JSON, `t` field as discriminator. Client → server:
 Server → client: `state` (full filtered view, sent after every change),
 `error`, `event` (cosmetic animation cue only — **never derive state from
 an `event`**; the next `state` message is always the source of truth).
+Cues: `placed`, `drew`, `roundOver`, `matchOver`, and `dealt` — raised by
+`room.ts` when a round is dealt, and the only thing that starts the deal
+animation (backs flying off the deck on the table, the hand fanning in on
+each phone), so a reconnect's fresh view never replays it.
 
 ### Scoring (shared/rules.ts)
 
@@ -168,8 +174,12 @@ rather than left to disagree — §7 for the table's one gesture and its
 aligned board, §8 for the portrait phone and the carry-and-throw model.
 
 - **The table is still tap-free.** `drawGesture.ts` explains why a
-  directional pull during a draw phase is safe where a tap was not, and it
-  is the only input the shared display accepts.
+  directional pull during a draw phase is safe where a tap was not. The
+  only other input is the same kind of gesture: pulling the cloth's
+  folded-back top-right corner diagonally in toward the middle turns the
+  table over between day and night (`peelGesture.ts`, `ClothCorner.tsx`).
+  A tap on the corner does nothing; only the keyboard can turn it without
+  the pull.
 - **Gesture arithmetic is pure and tested alone**, the way `columnMetrics`
   is: `shared/carry.ts` (the follow, the tilt, the velocity),
   `phone/throw.ts` (which direction meant what), `table/drawGesture.ts`
@@ -178,34 +188,58 @@ aligned board, §8 for the portrait phone and the carry-and-throw model.
 - **Flights are cosmetic and diff-free.** `table/flights.ts` turns a
   `TableEvent` into a journey, using the view as it stood *before* the cue —
   the server emits its event and then broadcasts, so a card taken off a
-  discard pile only still exists in the previous view.
+  discard pile only still exists in the previous view. `planDeal` there
+  sequences a deal; a card that lands gets a small settle through `scale`
+  (so it composes with a far-seat card's turn), and a deck draw on the
+  phone turns over in the air (`CardFlight`'s `flip`).
 - **Owned things face their owner; shared things read both ways — mostly.**
   The table lies between two players reading it from opposite ends.
   Anything that belongs to one of them — their name, their score, their
   expedition cards — is rotated 180° to face them if they sit at the far
   edge (`shared/seating.ts` is the one place `Seat` maps to that edge).
-  Anything that belongs to neither — the deck's remaining-card count, the
-  round counter — carries its value twice instead, once per reading
-  direction, rather than picking a side; the deck's paired
-  `deck__count`/`deck__count--far` chips are the shape that trade-off
-  takes. The discard piles are the one shared thing that picks a side
-  anyway: each shows a single upright card face, styled identically to a
-  hand card, so the far seat reads a discarded card upside-down rather than
-  the table carrying two smaller copies of it.
-- **A card looks the same everywhere it's readable at full size.** Hand
-  cards, a column's topmost card, and a discard pile's top card all render
-  with the same big centred numeral (`Card.tsx`'s `card__value`) — no
-  separate table style. Only a column card buried under the one played
-  after it, reduced to a sliver too thin for that numeral
-  (`columnMetrics.ts`), falls back to the small corner index instead
-  (`.column__card:not(:last-child)` in `app.css`).
+  Anything that belongs to neither is made to read from both ends: the
+  round counter renders once per seat, the deck's count is a single chip
+  turned 90° so it costs both seats the same head-tilt, and every card
+  carries a second corner index turned 180° — the way a real card does — so
+  the far seat reads a discarded card's value from its own end.
+- **A card looks the same everywhere, like a printed card.** The face is
+  the "Field Journal" design: the suit's engraving filling a parchment
+  card inside a double rule in the suit's ink, an ascent ladder (2 at the
+  foot to 10 at the head, this card's rung lit) down the left edge in the
+  suit's colour, oval cartouches with the index top-left and turned
+  bottom-right, and a centred numeral with the expedition's name under it
+  (`Card.tsx`, sized entirely as fractions of `--card-width` in
+  `app.css`). Numerals are Playfair Display (lining figures), the small
+  capitals IM Fell English SC, both self-hosted via `@fontsource`. A column card buried under the one played after it drops
+  the centred numeral (`.column__card:not(:last-child)` in `app.css`); its
+  top-left index is what shows in the sliver (`columnMetrics.ts`). The
+  phone's hand is a fan: each slot is narrower than its card, so cards
+  overlap with the top-left index showing, and each row bows into an arc
+  (`fanOffset` in `phone/handRows.ts`).
+- **The table is a surface, not a page.** Cards lie on a linen cloth
+  (`--surface` in `tokens.css`) with a shadow, and each table card lies at
+  a small tilt seeded from its id (`cardLie` in `Card.tsx`), so it never
+  sits square and never jiggles between renders. The deck is a stack of
+  parchment backs (an engraved compass inside a double rule, drawn in CSS)
+  with its count on a paper band wrapped lengthwise round it, so it reads
+  sideways to both seats alike; the band turns amber, then red, as the
+  round runs out.
+- **Night is the other side of the cloth.** The Ink slate theme swaps only
+  the cloth and the chrome on it (`:root[data-theme='night']` in
+  `tokens.css`); cards stay parchment. The tablet sets `data-theme` from
+  the side it was last turned to, else the device's dark-mode setting
+  (`platform/theme.ts`); a phone sets nothing and follows its device via
+  `prefers-color-scheme`. Anything that must not flip with the cloth — card
+  faces, the QR, alert chips — uses its own fixed tokens (`--card-stock`,
+  `--card-light`, `--qr-paper`/`--qr-ink`), never `--ink`/`--paper`.
 
 ## Known limitations
 
 - Wake Lock needs a secure context; over plain `http://192.168.x.x` screens
   can sleep (vibrate-on-turn still fires).
 - State is in-memory only — restarting the server ends the match.
-- Card art (the M9 illustrated background plates and the suit-tinted
-  `Card_Overlay`) lives in `client/src/assets/img/`, wired through
+- Card art (the M9 illustrated background plates; `Card_Overlay.png` and
+  `CardBack.png` are no longer used) lives in `client/src/assets/img/`,
+  wired through
   `client/src/shared/Card.tsx`'s class list and its CSS in `app.css` — still
   the one file/its stylesheet, nothing else needs to know a card has art.

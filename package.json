@@ -18,6 +18,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fontsource/im-fell-english-sc": "^5.3.0",
+    "@fontsource/playfair-display": "^5.3.0",
     "express": "^5.2.1",
     "qrcode-generator": "^2.0.4",
     "react": "^19.2.8",

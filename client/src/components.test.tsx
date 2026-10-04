@@ -6,13 +6,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Card as CardModel, Colour, PlayerView, PublicPlayerView, TableView } from '@shared/types';
-import { Card, CardSlot, COLOUR_MARK } from './shared/Card';
+import { Card, CardSlot, COLOUR_MARK, cardLie } from './shared/Card';
 import { Column } from './table/Column';
 import { profilePoints } from './table/ElevationProfile';
 import { DiscardRow, deckUrgency } from './table/DiscardRow';
 import { MatchEnd, PlayerBreakdown, RoundEnd } from './table/RoundEnd';
 import { Hand, drawnCardId, sortHand } from './phone/Hand';
-import { perRow } from './phone/handRows';
+import { fanOffset, perRow } from './phone/handRows';
 import {
   FLICK_V,
   MAX_TILT_DEG,
@@ -33,7 +33,7 @@ import { centreOf, edgeOfSeat, edgeRect } from './shared/flightPath';
 import { isFlipped } from './shared/seating';
 import { Invite, joinUrl, parseInvite, resolveInvite } from './shared/invite';
 import { columnExtent, columnMetrics, sideMetrics } from './table/columnMetrics';
-import { planFlight } from './table/flights';
+import { DEAL_STAGGER_MS, planDeal, planFlight } from './table/flights';
 import { JoinCode } from './table/JoinCode';
 import { qrMatrix, qrPath } from './table/qrCode';
 import { Lane, Lobby, NameRow, SeatInvite, SeatPlate, SeatSlot, Table } from './table/Table';
@@ -135,13 +135,44 @@ describe('Card', () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 
-  it('carries a corner index alongside the big numeral', () => {
-    // Both are in the DOM on every card; CSS shows the index only on a
-    // buried column card. Note this means a numeral matches twice — use
-    // getAllByText.
+  it('carries two corner indices alongside the centred numeral, like a real card', () => {
+    // A numeral matches three times on every card — use getAllByText.
     const { container } = render(<Card card={num('blue', 7)} />);
-    expect(container.querySelector('.card__index')?.textContent).toBe('7');
+    const indices = container.querySelectorAll('.card__index');
+    expect([...indices].map((el) => el.textContent)).toEqual(['7', '7']);
+    expect(indices[1].classList.contains('card__index--foot')).toBe(true);
     expect(container.querySelector('.card__value')?.textContent).toBe('7');
+  });
+
+  it('lights its own rung on the ascent ladder and names its expedition', () => {
+    const { container } = render(<Card card={num('blue', 7)} />);
+    const rungs = [...container.querySelectorAll('.card__rung')].map((r) => r.textContent);
+    expect(rungs).toEqual(['2', '3', '4', '5', '6', '7', '8', '9', '10']);
+    expect(container.querySelector('.card__rung.is-on')?.textContent).toBe('7');
+    expect(container.querySelector('.card__name')?.textContent).toBe('The Deep');
+  });
+
+  it('gives a wager a bare ladder and a wager ribbon', () => {
+    const { container } = render(<Card card={{ id: 'red-w1', colour: 'red', value: 'wager' }} />);
+    expect(container.querySelectorAll('.card__rung')).toHaveLength(0);
+    expect(container.querySelector('.card__name')?.textContent).toBe('Wager');
+  });
+
+  it('lies the same way every time, within a small tilt and nudge', () => {
+    const ids = ['blue-7', 'red-w1', 'yellow-10', 'green-2', 'white-w3'];
+    for (const id of ids) {
+      const lie = cardLie(id);
+      expect(cardLie(id)).toEqual(lie);
+      expect(Math.abs(lie.tilt)).toBeLessThanOrEqual(1.8);
+      expect(Math.abs(lie.nudgeX)).toBeLessThanOrEqual(2);
+      expect(Math.abs(lie.nudgeY)).toBeLessThanOrEqual(2);
+    }
+    // Not all square: the point is that they differ.
+    expect(new Set(ids.map((id) => cardLie(id).tilt.toFixed(2))).size).toBeGreaterThan(1);
+
+    const { container } = render(<Card card={num('blue', 7)} />);
+    const style = (container.firstChild as HTMLElement).style;
+    expect(style.getPropertyValue('--tilt')).toBe(`${cardLie('blue-7').tilt.toFixed(2)}deg`);
   });
 
   it('leaves the colour mark to CardSlot, now that art carries the non-colour cue', () => {
@@ -372,6 +403,15 @@ describe('how the hand wraps into rows', () => {
     expect(perRow(6)).toBe(3);
     expect(perRow(7)).toBe(4);
     expect(perRow(8)).toBe(4);
+  });
+
+  it('fans each row around its own middle', () => {
+    // Eight cards: two rows of four, each running -1.5 .. 1.5.
+    expect([0, 1, 2, 3].map((i) => fanOffset(i, 8))).toEqual([-1.5, -0.5, 0.5, 1.5]);
+    expect([4, 5, 6, 7].map((i) => fanOffset(i, 8))).toEqual([-1.5, -0.5, 0.5, 1.5]);
+    // Seven: four then three, the second row centred on its middle card.
+    expect([4, 5, 6].map((i) => fanOffset(i, 7))).toEqual([-1, 0, 1]);
+    expect(fanOffset(0, 1)).toBe(0);
   });
 
   it('never divides by zero for an empty hand', () => {
@@ -1364,6 +1404,16 @@ describe('card flight', () => {
   });
 });
 
+describe('the deal', () => {
+  it('deals one card at a time, alternating, starting with the seat to move', () => {
+    const steps = planDeal(8, 1);
+    expect(steps).toHaveLength(16);
+    expect(steps.slice(0, 4).map((s) => s.seat)).toEqual([1, 0, 1, 0]);
+    expect(steps.filter((s) => s.seat === 0)).toHaveLength(8);
+    expect(steps.map((s) => s.delayMs)).toEqual(steps.map((_, i) => i * DEAL_STAGGER_MS));
+  });
+});
+
 describe('flight paths', () => {
   const rect = { x: 100, y: 200, width: 80, height: 120 };
   const viewport = { width: 800, height: 400 };
@@ -1484,7 +1534,7 @@ describe('the discard row', () => {
     expect(deck?.querySelectorAll('.card--back').length).toBeGreaterThan(0);
     // Capped at 3 for depth, however many cards are actually left.
     expect(deck?.querySelectorAll('.card--back').length).toBeLessThanOrEqual(3);
-    expect(deck?.querySelector('.deck__count')?.textContent).toBe('44');
+    expect(deck?.querySelector('.deck__count-n')?.textContent).toBe('44');
     expect(deck?.className).toContain('deck--normal');
   });
 
@@ -1493,7 +1543,7 @@ describe('the discard row', () => {
 
     const deck = container.querySelector('[data-deck]');
     expect(deck?.querySelectorAll('.card--back').length).toBe(0);
-    expect(deck?.querySelector('.deck__count')?.textContent).toBe('0');
+    expect(deck?.querySelector('.deck__count-n')?.textContent).toBe('0');
     expect(deck?.className).toContain('deck--critical');
   });
 

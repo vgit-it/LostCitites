@@ -12,7 +12,7 @@ import { useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { Card as CardModel, DrawSource, PlaceTarget, PlayerView, Seat } from '@shared/types';
 import { vibrateCommit, vibrateDraw, vibrateReject, vibrateTurnStart } from '../platform/vibrate';
-import { DRAW_FLIGHT_MS, SHAKE_MS } from '../platform/motion';
+import { DRAW_FLIGHT_MS, FLIP_FLIGHT_MS, SHAKE_MS } from '../platform/motion';
 import { usePortraitLock } from '../platform/orientation';
 import { useWakeLock } from '../platform/wakeLock';
 import {
@@ -68,7 +68,12 @@ interface Flight {
   spin?: number;
   reversed?: boolean;
   durationMs?: number;
+  /** Arrives face down and turns over: a card drawn off the deck. */
+  flip?: boolean;
 }
+
+/** How long the freshly dealt hand takes to fan in, start to last card. */
+const DEAL_IN_MS = 1200;
 
 export function Phone({
   invite = null,
@@ -94,6 +99,14 @@ export function Phone({
    * outlives the state change that caused it, and ends on its own promise.
    */
   const [flight, setFlight] = useState<Flight | null>(null);
+  /** A round was just dealt: the hand fans in card by card. */
+  const [dealing, setDealing] = useState(false);
+  /**
+   * Whether this phone's own last draw came off the deck. The cue arrives
+   * just ahead of the state carrying the new card, so it is read by the
+   * diff below — a deck card turns over as it arrives, a discard does not.
+   */
+  const drewFromDeck = useRef(false);
   /** What the opponent just did, shown briefly in place of the headline. */
   const [opponentCue, setOpponentCue] = useState<string | null>(null);
   /** The card currently up under the finger, if any. */
@@ -139,7 +152,15 @@ export function Phone({
     const card = player.hand.find((c) => c.id === arrived);
     const to = rectOf(`[data-card-id="${arrived}"]`);
     if (card && to) {
-      setFlight({ card, from: edgeRect(to, 'top', viewport()), to, durationMs: DRAW_FLIGHT_MS });
+      setFlight({
+        card,
+        from: edgeRect(to, 'top', viewport()),
+        to,
+        // Slower when it turns over: a flip inside the plain draw's 240ms
+        // is over before the eye catches it.
+        durationMs: drewFromDeck.current ? FLIP_FLIGHT_MS : DRAW_FLIGHT_MS,
+        flip: drewFromDeck.current,
+      });
     }
   }, [view]);
 
@@ -152,7 +173,11 @@ export function Phone({
   // Cosmetic only — the next `state` remains the source of truth for
   // everything shown here.
   useTableEvents((event) => {
+    if (event.name === 'dealt') setDealing(true);
     if (!player) return;
+    if (event.name === 'drew' && event.seat === player.seat) {
+      drewFromDeck.current = event.source.kind === 'deck';
+    }
     if (event.name === 'placed' && event.seat !== player.seat) {
       setOpponentCue(
         event.target === 'discard'
@@ -164,6 +189,13 @@ export function Phone({
       setOpponentCue(event.source.kind === 'deck' ? 'drew from the deck' : 'took a discard');
     }
   });
+
+  // The deal-in is a one-off flourish on its own clock.
+  useEffect(() => {
+    if (!dealing) return;
+    const timer = setTimeout(() => setDealing(false), DEAL_IN_MS);
+    return () => clearTimeout(timer);
+  }, [dealing]);
 
   // The cue is a flash, not a log: it clears itself.
   useEffect(() => {
@@ -352,6 +384,7 @@ export function Phone({
             muted={!myTurn || drawing}
             away={!myTurn}
             refusingId={refusingId}
+            dealing={dealing}
             onCarry={setCarried}
             onArmed={setArmed}
             onThrow={handleThrow}
@@ -388,6 +421,7 @@ export function Phone({
           spin={flight.spin}
           reversed={flight.reversed}
           durationMs={flight.durationMs}
+          flip={flight.flip}
           onDone={() => setFlight(null)}
         />
       )}

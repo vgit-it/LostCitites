@@ -136,7 +136,9 @@ export type TableEvent =
   | { name: 'placed'; seat: Seat; card: Card; target: PlaceTarget['kind'] }
   | { name: 'drew'; seat: Seat; source: DrawSource }
   | { name: 'roundOver' }
-  | { name: 'matchOver'; winner: Seat | 'tie' };
+  | { name: 'matchOver'; winner: Seat | 'tie' }
+  /** A round has just been dealt — the cue for the deal animation. */
+  | { name: 'dealt'; round: number };
 
 // ------------------------------------------------------------
 // Constants

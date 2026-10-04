@@ -19,6 +19,11 @@ import { SessionProvider } from './session/useSession';
 import { Invite, joinUrl, parseInvite } from './shared/invite';
 import { Table } from './table/Table';
 import { Phone } from './phone/Phone';
+// The card face's type, self-hosted so a LAN game with no internet still
+// gets it: Playfair Display for the numerals, IM Fell English SC for the
+// engraved small capitals.
+import '@fontsource/playfair-display/700.css';
+import '@fontsource/im-fell-english-sc/400.css';
 import './styles/tokens.css';
 import './styles/app.css';
 

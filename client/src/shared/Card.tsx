@@ -22,6 +22,45 @@ export const COLOUR_MARK: Record<Colour, string> = {
   red: '⬢',
 };
 
+/**
+ * How a card lies on the table: a small tilt and nudge, so a played card
+ * looks dropped rather than snapped to a grid. Derived from the card's id
+ * alone (FNV-1a), so the same card always lies the same way — a re-render
+ * or a reconnect never makes it jiggle. Only the table's CSS reads these.
+ */
+export function cardLie(id: string): { tilt: number; nudgeX: number; nudgeY: number } {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  // Three independent bytes of the hash, each mapped to [-1, 1].
+  const unit = (shift: number) => (((h >>> shift) & 0xff) / 255) * 2 - 1;
+  return { tilt: unit(0) * 1.8, nudgeX: unit(8) * 2, nudgeY: unit(16) * 2 };
+}
+
+function faceStyle(card: CardModel): React.CSSProperties {
+  const lie = cardLie(card.id);
+  return {
+    '--colour': `var(--colour-${card.colour})`,
+    '--tilt': `${lie.tilt.toFixed(2)}deg`,
+    '--nudge-x': `${lie.nudgeX.toFixed(1)}px`,
+    '--nudge-y': `${lie.nudgeY.toFixed(1)}px`,
+  } as React.CSSProperties;
+}
+
+/** What each expedition is called on the card's face. */
+export const SUIT_NAME: Record<Colour, string> = {
+  yellow: 'The Desert',
+  blue: 'The Deep',
+  white: 'The Summit',
+  green: 'The Canopy',
+  red: 'The Volcano',
+};
+
+/** The rungs of the ascent ladder, foot to head. */
+const LADDER = [2, 3, 4, 5, 6, 7, 8, 9, 10];
+
 export interface CardProps {
   card: CardModel;
   size?: CardSize;
@@ -62,24 +101,45 @@ export function Card({
     .filter(Boolean)
     .join(' ');
 
+  const wager = card.value === 'wager';
+  const shown = wager ? '✦' : card.value;
+
+  // The Field Journal face: an engraved expedition plate filling the card
+  // inside a double rule, with an ascent ladder down its left edge. Every
+  // piece is placed by app.css; document order alone stacks them.
   const face = (
     <>
-      {/* The illustrated background plate and the suit-tinted Card_Overlay —
-          both picked by `card--${colour}` / `card--wager` in app.css. Behind
-          the text spans below by document order alone, the same trick this
-          file already relies on for card__index. No card__mark here any
-          more: the illustration itself is now the non-colour cue, so the
-          glyph stayed only on CardSlot (no art of its own to carry it). */}
       <span className="card__art" aria-hidden="true" />
-      <span className="card__overlay" aria-hidden="true" />
-      {/* A corner index, the way a real card carries one. Hidden by default —
-          app.css shows it only where the centred numeral below can't
-          survive: a column card buried under the one played after it,
-          reduced to a sliver too thin for anything else (columnMetrics.ts). */}
-      <span className="card__index" aria-hidden="true">
-        {card.value === 'wager' ? '✦' : card.value}
+      <span className="card__frame" aria-hidden="true" />
+      {/* The ascent ladder: 2 at the foot, 10 at the head, this card's
+          value lit. It is the strip a fanned hand leaves showing, and it
+          says at a glance how far up its expedition a card sits. A wager
+          has no rung, so its ladder is bare. */}
+      <span className="card__ladder" aria-hidden="true">
+        {!wager &&
+          LADDER.map((rung) => (
+            <span key={rung} className={rung === card.value ? 'card__rung is-on' : 'card__rung'}>
+              {rung}
+            </span>
+          ))}
       </span>
-      <span className="card__value">{card.value === 'wager' ? '✦' : card.value}</span>
+      {/* Corner cartouches, the way a real card carries its index: top-left,
+          and the same again turned 180deg at bottom-right. The top-left one
+          is what survives an overlap — a fanned hand, or a column card
+          buried under the next one (columnMetrics.ts). The turned one is
+          what the far seat reads on a shared discard pile. */}
+      <span className="card__index" aria-hidden="true">
+        {shown}
+      </span>
+      <span className="card__index card__index--foot" aria-hidden="true">
+        {shown}
+      </span>
+      <span className="card__centre">
+        <span className="card__value">{shown}</span>
+        <span className="card__name" aria-hidden="true">
+          {wager ? 'Wager' : SUIT_NAME[card.colour]}
+        </span>
+      </span>
     </>
   );
 
@@ -94,7 +154,7 @@ export function Card({
     return (
       <div
         className={className}
-        style={{ '--colour': `var(--colour-${card.colour})` } as React.CSSProperties}
+        style={faceStyle(card)}
         aria-label={label}
         title={title ?? label}
         // undefined, not false: a table card is not a toggle, and `false`
@@ -113,7 +173,7 @@ export function Card({
     <button
       type="button"
       className={className}
-      style={{ '--colour': `var(--colour-${card.colour})` } as React.CSSProperties}
+      style={faceStyle(card)}
       aria-label={label}
       title={title ?? label}
       // undefined, not false: a table card is not a toggle, and `false`
