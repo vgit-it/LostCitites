@@ -134,6 +134,10 @@ WebSocket, JSON, `t` field as discriminator. Client → server:
 Server → client: `state` (full filtered view, sent after every change),
 `error`, `event` (cosmetic animation cue only — **never derive state from
 an `event`**; the next `state` message is always the source of truth).
+Cues: `placed`, `drew`, `roundOver`, `matchOver`, and `dealt` — raised by
+`room.ts` when a round is dealt, and the only thing that starts the deal
+animation (backs flying off the deck on the table, the hand fanning in on
+each phone), so a reconnect's fresh view never replays it.
 
 ### Scoring (shared/rules.ts)
 
@@ -178,7 +182,10 @@ aligned board, §8 for the portrait phone and the carry-and-throw model.
 - **Flights are cosmetic and diff-free.** `table/flights.ts` turns a
   `TableEvent` into a journey, using the view as it stood *before* the cue —
   the server emits its event and then broadcasts, so a card taken off a
-  discard pile only still exists in the previous view.
+  discard pile only still exists in the previous view. `planDeal` there
+  sequences a deal; a card that lands gets a small settle through `scale`
+  (so it composes with a far-seat card's turn), and a deck draw on the
+  phone turns over in the air (`CardFlight`'s `flip`).
 - **Owned things face their owner; shared things read both ways — mostly.**
   The table lies between two players reading it from opposite ends.
   Anything that belongs to one of them — their name, their score, their

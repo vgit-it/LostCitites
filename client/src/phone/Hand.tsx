@@ -45,6 +45,8 @@ export interface HandProps {
   onThrow?: (cardId: string, outcome: Throw) => void;
   /** The card the server just refused: shake it, then let it settle back. */
   refusingId?: string | null;
+  /** A round was just dealt: the cards fan in one at a time. */
+  dealing?: boolean;
 }
 
 /** Wagers lead their colour, then numbers ascending — the order they are played in. */
@@ -109,6 +111,7 @@ export function Hand({
   onArmed,
   onThrow,
   refusingId,
+  dealing = false,
 }: HandProps) {
   const [gesture, dispatch] = useReducer(gestureReducer, initialGesture);
   const ordered = sortHand(cards);
@@ -248,6 +251,7 @@ export function Hand({
     muted ? 'is-muted' : '',
     away ? 'is-away' : '',
     carriedId ? 'is-carrying' : '',
+    dealing ? 'is-dealing' : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -292,6 +296,7 @@ export function Hand({
             style={
               {
                 '--fan-o': fanOffset(index, ordered.length),
+                '--deal-i': index,
                 ...(carried && {
                   transform: `translate3d(${carry.x.toFixed(1)}px, ${carry.y.toFixed(1)}px, 0) rotate(${carry.tilt.toFixed(2)}deg) scale(1.12)`,
                   zIndex: 99,

@@ -33,7 +33,7 @@ import { centreOf, edgeOfSeat, edgeRect } from './shared/flightPath';
 import { isFlipped } from './shared/seating';
 import { Invite, joinUrl, parseInvite, resolveInvite } from './shared/invite';
 import { columnExtent, columnMetrics, sideMetrics } from './table/columnMetrics';
-import { planFlight } from './table/flights';
+import { DEAL_STAGGER_MS, planDeal, planFlight } from './table/flights';
 import { JoinCode } from './table/JoinCode';
 import { qrMatrix, qrPath } from './table/qrCode';
 import { Lane, Lobby, NameRow, SeatInvite, SeatPlate, SeatSlot, Table } from './table/Table';
@@ -1387,6 +1387,16 @@ describe('card flight', () => {
     expect(el.style.top).toBe('300px');
     // It is a picture of a card; the real one is elsewhere.
     expect(el.getAttribute('aria-hidden')).toBe('true');
+  });
+});
+
+describe('the deal', () => {
+  it('deals one card at a time, alternating, starting with the seat to move', () => {
+    const steps = planDeal(8, 1);
+    expect(steps).toHaveLength(16);
+    expect(steps.slice(0, 4).map((s) => s.seat)).toEqual([1, 0, 1, 0]);
+    expect(steps.filter((s) => s.seat === 0)).toHaveLength(8);
+    expect(steps.map((s) => s.delayMs)).toEqual(steps.map((_, i) => i * DEAL_STAGGER_MS));
   });
 });
 

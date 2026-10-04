@@ -1148,6 +1148,28 @@ button.card:not(:disabled):active {
   z-index: 200;
   pointer-events: none;
   will-change: transform;
+  /* Depth for a card that turns over in the air (below). */
+  perspective: 700px;
+}
+
+/* A card that turns over in the air (CardFlight's `flip`): two faces back to
+   back on an inner element, which CardFlight turns from 180deg to 0 while
+   the outer element carries the travel. */
+.card-flight__flipper {
+  position: relative;
+  transform-style: preserve-3d;
+  transform: rotateY(180deg);
+}
+
+.card-flight__face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.card-flight__face--back {
+  position: absolute;
+  inset: 0;
+  transform: rotateY(180deg);
 }
 
 .sr-only {
@@ -1269,6 +1291,30 @@ button.card:not(:disabled):active {
     translate var(--motion),
     filter var(--motion),
     opacity var(--motion);
+}
+
+/* A fresh deal fans in: each card drops into the hand from the table edge
+   above, one after another (--deal-i from Hand.tsx). On the card inside the
+   slot, never the slot itself, so the fan's own rotate/translate on the
+   slot are untouched. 'backwards' holds each card off-screen until its
+   turn comes. */
+@keyframes deal-in {
+  from {
+    transform: translateY(-70svh) rotate(-8deg);
+    opacity: 0;
+  }
+  60% {
+    opacity: 1;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.hand.is-dealing .hand__slot .card {
+  animation: deal-in 360ms cubic-bezier(0.2, 0.7, 0.3, 1) backwards;
+  animation-delay: calc(var(--deal-i, 0) * 90ms);
 }
 
 /* Nothing this player may do with this card right now. */

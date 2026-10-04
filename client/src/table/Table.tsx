@@ -12,6 +12,7 @@ import {
   Card as CardModel,
   Colour,
   DrawSource,
+  HAND_SIZE,
   PublicPlayerView,
   Seat,
   TableView,
@@ -23,16 +24,16 @@ import {
   useSession,
   useTableEvents,
 } from '../session/useSession';
-import { FLIGHT_MS } from '../platform/motion';
+import { EASE, FLIGHT_MS, animate } from '../platform/motion';
 import { useWakeLock } from '../platform/wakeLock';
 import { CardFlight, Rect } from '../shared/CardFlight';
-import { edgeRect } from '../shared/flightPath';
+import { edgeOfSeat, edgeRect } from '../shared/flightPath';
 import { isFlipped } from '../shared/seating';
 import { playCardDrawn, playCardPlaced, unlockSounds } from '../platform/sound';
 import { Column } from './Column';
 import { ColumnMetrics, sideMetrics } from './columnMetrics';
 import { DiscardRow } from './DiscardRow';
-import { FlightPlan, planFlight } from './flights';
+import { DealStep, FlightPlan, planDeal, planFlight } from './flights';
 import { JoinCode } from './JoinCode';
 import { MatchEnd, RoundEnd } from './RoundEnd';
 
@@ -79,6 +80,29 @@ interface Flight {
   spin: number;
 }
 
+/** One back leaving the deck for a seat's edge, in a staggered deal. */
+interface DealFlight extends DealStep {
+  from: Rect;
+  to: Rect;
+}
+
+/** The settle a card makes as it comes to rest: a touch of overshoot. */
+const SETTLE_MS = 300;
+
+/**
+ * The little drop-and-settle a card does when it lands on the table. On the
+ * card face inside the anchor, and through `scale` rather than `transform`
+ * so it composes with the far seat's 180deg turn and the card's own tilt.
+ */
+function settle(anchor: string): void {
+  const face = document.querySelector(`${anchor} .card`);
+  if (!face) return;
+  animate(face, [{ scale: '1.06' }, { scale: '0.985', offset: 0.55 }, { scale: '1' }], {
+    duration: SETTLE_MS,
+    easing: EASE,
+  });
+}
+
 export function Table({ code, invites }: { code: string; invites?: SeatInvite[] }) {
   const session = useSession();
   const view = useClientView();
@@ -86,6 +110,10 @@ export function Table({ code, invites }: { code: string; invites?: SeatInvite[] 
   useWakeLock();
 
   const [flight, setFlight] = useState<Flight | null>(null);
+  /** The deal in progress, one back per card dealt. */
+  const [deal, setDeal] = useState<DealFlight[] | null>(null);
+  /** A deal was cued; it runs once the dealt board has rendered. */
+  const pendingDeal = useRef(false);
   /** The card being flown in, held back until it lands. */
   const [arrivingId, setArrivingId] = useState<string | null>(null);
   /**
@@ -112,6 +140,7 @@ export function Table({ code, invites }: { code: string; invites?: SeatInvite[] 
   // Cosmetic only. The next `state` is still the source of truth for
   // everything on screen; this decides nothing.
   useTableEvents((event) => {
+    if (event.name === 'dealt') pendingDeal.current = true;
     if (event.name === 'placed') playCardPlaced();
     if (event.name === 'drew') playCardDrawn();
     if (!before.current) return;
@@ -127,6 +156,21 @@ export function Table({ code, invites }: { code: string; invites?: SeatInvite[] 
     pending.current = null;
     before.current = table;
 
+    // The deck only exists once the dealt board is on screen, which is now.
+    if (pendingDeal.current && table?.stage === 'playing') {
+      pendingDeal.current = false;
+      const deck = rectOf('[data-deck]');
+      if (deck) {
+        setDeal(
+          planDeal(HAND_SIZE, table.turn).map((step) => ({
+            ...step,
+            from: deck,
+            to: edgeRect(deck, edgeOfSeat(step.seat), viewport()),
+          })),
+        );
+      }
+    }
+
     if (!plan || !table) return;
     const rect = rectOf(plan.anchor);
     if (!rect) return;
@@ -139,6 +183,14 @@ export function Table({ code, invites }: { code: string; invites?: SeatInvite[] 
     );
     setArrivingId(plan.hideCardId);
   }, [view]);
+
+  // The deal clears itself even if its last flight never reports finishing.
+  useEffect(() => {
+    if (!deal) return;
+    const last = deal[deal.length - 1]?.delayMs ?? 0;
+    const timer = setTimeout(() => setDeal(null), last + FLIGHT_MS * 3);
+    return () => clearTimeout(timer);
+  }, [deal]);
 
   // A held-back card must reappear even if its flight never reports finishing
   // — a round ending mid-flight unmounts the overlay, and its promise then
@@ -203,11 +255,25 @@ export function Table({ code, invites }: { code: string; invites?: SeatInvite[] 
           kind={flight.kind}
           spin={flight.spin}
           onDone={() => {
+            if (flight.kind === 'land' && arrivingId) settle(`[data-card-id="${arrivingId}"]`);
             setFlight(null);
             setArrivingId(null);
           }}
         />
       )}
+
+      {deal?.map((step, i) => (
+        <CardFlight
+          key={`deal-${i}`}
+          card={null}
+          from={step.from}
+          to={step.to}
+          kind="throw"
+          spin={step.seat === 1 ? 180 : 0}
+          delayMs={step.delayMs}
+          onDone={i === deal.length - 1 ? () => setDeal(null) : () => {}}
+        />
+      ))}
     </div>
   );
 }

@@ -148,6 +148,29 @@ describe('animation cues', () => {
     expect(channel.events.filter((e) => e.event.name === 'drew')).toHaveLength(3);
   });
 
+  it('emits dealt to all three roles when a round is dealt, and only then', () => {
+    const room = newRoom();
+    room.bindPlayer(0, 'Paul');
+    room.bindPlayer(1, 'Aditi');
+    room.startRound();
+    const dealt = channel.events.filter((e) => e.event.name === 'dealt');
+    expect(dealt.map((e) => e.role)).toEqual(['table', 'seat0', 'seat1']);
+    expect(dealt[0].event).toEqual({ name: 'dealt', round: 1 });
+
+    // The next round deals on the second ready, not the first.
+    channel.clearSignals();
+    room.snapshot().deck.length = 1;
+    room.place(0, view(0).hand[0].id, 'discard');
+    room.draw(0, { kind: 'deck' });
+    room.readyNextRound(0);
+    expect(channel.events.some((e) => e.event.name === 'dealt')).toBe(false);
+    room.readyNextRound(1);
+    expect(channel.events.find((e) => e.event.name === 'dealt')?.event).toEqual({
+      name: 'dealt',
+      round: 2,
+    });
+  });
+
   it('emits nothing when the intent was rejected', () => {
     const room = startedRoom();
     room.place(1, view(1).hand[0].id, 'discard');
